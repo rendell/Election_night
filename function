@@ -1,0 +1,66 @@
+# Define the seat allocation function with detailed output
+allocate_seats <- function(votes, parties, total_seats = 21) {
+  
+  # Step 1: Calculate the total number of votes and the kiesdeler (electoral quotient)
+  total_votes <- sum(votes)
+  kiesdeler <- total_votes / total_seats
+  
+  # Step 2: Initial seat allocation based on the kiesdeler
+  initial_seats <- floor(votes / kiesdeler)
+  
+  # Step 3: Calculate remaining seats to be allocated
+  remaining_seats <- total_seats - sum(initial_seats)
+  
+  # Step 4: Create a data frame to store party names, votes, initial seats, and divisor for D'Hondt calculation
+  seat_allocation <- data.frame(
+    party = parties,
+    votes = votes,
+    initial_seats = initial_seats,
+    divisor = votes / (initial_seats + 1)
+  )
+  
+  # Prepare columns for each restzetel iteration
+  iteration_columns <- matrix(NA, nrow = length(parties), ncol = remaining_seats)
+  colnames(iteration_columns) <- paste0("iteration_", 1:remaining_seats)
+  seat_allocation <- cbind(seat_allocation, iteration_columns)
+  
+  # Data frame to store restzetel allocation details
+  restzetel_allocation <- data.frame(
+    iteration = integer(),
+    party = character(),
+    restzetel_seat = integer()
+  )
+  
+  # Distribute the remaining seats (restzetels)
+  for (i in 1:remaining_seats) {
+    # Find the party with the largest divisor
+    max_index <- which.max(seat_allocation$divisor)
+    
+    # Allocate one restzetel to that party and update their divisor
+    seat_allocation$divisor[max_index] <- seat_allocation$votes[max_index] / (seat_allocation$initial_seats[max_index] + i + 1)
+    
+    # Record the restzetel assignment in the corresponding iteration column
+    seat_allocation[max_index, paste0("iteration_", i)] <- 1
+    
+    # Record the restzetel assignment for output
+    restzetel_allocation <- rbind(
+      restzetel_allocation,
+      data.frame(iteration = i, party = seat_allocation$party[max_index], restzetel_seat = 1)
+    )
+  }
+  
+  # Step 5: Final output with the initial seats and restzetel assignment
+  final_output <- seat_allocation[, c("party", "votes", "initial_seats", paste0("iteration_", 1:remaining_seats))]
+  
+  return(final_output)
+}
+
+# Example usage: votes vector and parties vector
+votes <- c(20023, 19545, 4631, 3500, 3750, 1250, 1128, 6896, 3453)
+parties <- c("AVP", "MEP", "RAIZ", "MAS", "PPA", "RED", "LPF", "FUTURO", "ACCION21")
+
+# Call the function with the votes and parties vectors
+result <- allocate_seats(votes, parties)
+
+# Print the result
+print(result)
