@@ -1,9 +1,9 @@
-# Define the seat allocation function with detailed output
+```{r}
+# Define the seat allocation function with detailed output and additional columns
 allocate_seats <- function(votes, parties, total_seats = 21) {
-  
   # Step 1: Calculate the total number of votes and the kiesdeler (electoral quotient)
   total_votes <- sum(votes)
-  kiesdeler <- total_votes / total_seats
+  kiesdeler <- round(total_votes / total_seats)
   
   # Step 2: Initial seat allocation based on the kiesdeler
   initial_seats <- floor(votes / kiesdeler)
@@ -11,56 +11,104 @@ allocate_seats <- function(votes, parties, total_seats = 21) {
   # Step 3: Calculate remaining seats to be allocated
   remaining_seats <- total_seats - sum(initial_seats)
   
-  # Step 4: Create a data frame to store party names, votes, initial seats, and divisor for D'Hondt calculation
+  # Step 4: Create a data frame to store party names, votes, initial seats, total seats, and divisor for D'Hondt calculation
   seat_allocation <- data.frame(
     party = parties,
     votes = votes,
+    vote_percentage = round((votes / total_votes) * 100, 1),  # Calculate percentage share of total votes, rounded to 1 decimal
     initial_seats = initial_seats,
+    total_seats = initial_seats,  # Track total seats separately
     divisor = votes / (initial_seats + 1)
   )
   
-  # Prepare columns for each restzetel iteration
-  iteration_columns <- matrix(NA, nrow = length(parties), ncol = remaining_seats)
-  colnames(iteration_columns) <- paste0("iteration_", 1:remaining_seats)
-  seat_allocation <- cbind(seat_allocation, iteration_columns)
+  # Add a "kiesdeler_gap" column to show votes needed to reach the kiesdeler if not reached
+  seat_allocation$kiesdeler_gap <- ifelse(seat_allocation$votes < kiesdeler, kiesdeler - seat_allocation$votes, 0)
   
-  # Data frame to store restzetel allocation details
-  restzetel_allocation <- data.frame(
-    iteration = integer(),
-    party = character(),
-    restzetel_seat = integer()
-  )
+  # Prepare columns for each restzetel iteration and corresponding divisors
+  iteration_columns <- matrix(0, nrow = length(parties), ncol = remaining_seats)
+  divisor_columns <- matrix(NA, nrow = length(parties), ncol = remaining_seats)
+  colnames(iteration_columns) <- paste0("Iteration_", 1:remaining_seats)
+  colnames(divisor_columns) <- paste0("Iteration_", 1:remaining_seats, "_div")
+  seat_allocation <- cbind(seat_allocation, divisor_columns, iteration_columns)
   
   # Distribute the remaining seats (restzetels)
   for (i in 1:remaining_seats) {
-    # Find the party with the largest divisor
-    max_index <- which.max(seat_allocation$divisor)
+    # Record current divisor values for parties that have reached the kiesdeler, rounded to 1 decimal
+    seat_allocation[, paste0("Iteration_", i, "_div")] <- ifelse(seat_allocation$votes >= kiesdeler, 
+                                                                  round(seat_allocation$divisor, 1), NA)
     
-    # Allocate one restzetel to that party and update their divisor
-    seat_allocation$divisor[max_index] <- seat_allocation$votes[max_index] / (seat_allocation$initial_seats[max_index] + i + 1)
+    # Find the party with the largest divisor among those eligible (who reached the kiesdeler)
+    eligible_parties <- which(seat_allocation$votes >= kiesdeler)
+    max_index <- eligible_parties[which.max(seat_allocation$divisor[eligible_parties])]
     
-    # Record the restzetel assignment in the corresponding iteration column
-    seat_allocation[max_index, paste0("iteration_", i)] <- 1
+    # Allocate one restzetel by updating the total seats (not initial seats)
+    seat_allocation$total_seats[max_index] <- seat_allocation$total_seats[max_index] + 1
     
-    # Record the restzetel assignment for output
-    restzetel_allocation <- rbind(
-      restzetel_allocation,
-      data.frame(iteration = i, party = seat_allocation$party[max_index], restzetel_seat = 1)
-    )
+    # Record the allocation in the corresponding iteration column
+    seat_allocation[max_index, paste0("Iteration_", i)] <- 1
+    
+    # Update the divisor for the party that received the seat
+    seat_allocation$divisor[max_index] <- seat_allocation$votes[max_index] / (seat_allocation$total_seats[max_index] + 1)
   }
   
-  # Step 5: Final output with the initial seats and restzetel assignment
-  final_output <- seat_allocation[, c("party", "votes", "initial_seats", paste0("iteration_", 1:remaining_seats))]
+  # Reorder columns to display divisor and iteration columns in alternating order
+  combined_columns <- c(rbind(paste0("Iteration_", 1:remaining_seats, "_div"), paste0("Iteration_", 1:remaining_seats)))
+  final_columns <- c("party", "votes", "vote_percentage", "initial_seats", "total_seats", "kiesdeler_gap", combined_columns)
   
-  return(final_output)
+  # Create a summary table
+  total_initial_seats <- sum(seat_allocation$initial_seats)
+  total_restzetels <- sum(seat_allocation$total_seats) - total_initial_seats
+  
+  summary_table <- data.frame(
+    Kiesdeler = kiesdeler,
+    Total_Votes = total_votes,
+    Total_Initial_Seats = total_initial_seats,
+    Total_Restzetels = total_restzetels
+  )
+  
+  # Output results
+  list(
+    seat_allocation = seat_allocation[, final_columns],
+    summary_table = summary_table
+  )
 }
 
 # Example usage: votes vector and parties vector
-votes <- c(20023, 19545, 4631, 3500, 3750, 1250, 1128, 6896, 3453)
-parties <- c("AVP", "MEP", "RAIZ", "MAS", "PPA", "RED", "LPF", "FUTURO", "ACCION21")
+votes <- c(3410, 1809, 4681, 621, 20700, 249, 661, 18335, 574, 312, 5474, 1784)
+parties <- c("A21", "PPA", "MAS", "UPP", "MEP", "HTC", "POR", "AVP", "PP", "CURPA", "RAIZ", "RED")
 
 # Call the function with the votes and parties vectors
 result <- allocate_seats(votes, parties)
 
-# Print the result
-print(result)
+# Print the results
+print(result$seat_allocation)
+print(result$summary_table)
+```
+
+```{r}
+# Load necessary libraries
+library(knitr)
+library(kableExtra)
+
+# Define the seat allocation function (assuming this function has already been defined as above)
+# Example usage to generate seat allocation results
+votes <- c(3410, 1809, 4681, 621, 20700, 249, 661, 18335, 574, 312, 5474, 1784)
+parties <- c("A21", "PPA", "MAS", "UPP", "MEP", "HTC", "POR", "AVP", "PP", "CURPA", "RAIZ", "RED")
+result <- allocate_seats(votes, parties)
+
+# Display the seat allocation table as a formatted print-ready table
+print_ready_seat_allocation <- result$seat_allocation %>%
+  kbl(caption = "Seat Allocation Table") %>%
+  kable_styling(full_width = FALSE, bootstrap_options = c("striped", "hover", "condensed", "responsive"))
+
+# Display the summary table as a formatted print-ready table
+print_ready_summary_table <- result$summary_table %>%
+  kbl(caption = "Summary Table") %>%
+  kable_styling(full_width = FALSE, bootstrap_options = c("striped", "hover", "condensed", "responsive"))
+
+# Print the formatted tables
+print(print_ready_seat_allocation)
+print(print_ready_summary_table)
+```
+
+
