@@ -74,16 +74,210 @@ allocate_seats <- function(votes, parties, total_seats = 21) {
 }
 
 # Example usage: votes vector and parties vector
-votes <- c(3410, 1809, 4681, 621, 20700, 249, 661, 18335, 574, 312, 5474, 1784)
-parties <- c("A21", "PPA", "MAS", "UPP", "MEP", "HTC", "POR", "AVP", "PP", "CURPA", "RAIZ", "RED")
+votes_1985 <- c(13786,11480,4499,3661,3216)
+parties_1985 <- c("MEP","AVP","PPA","PDA","ADN")
+
+votes_1989 <- c(16555,12668,2298,1874,1772,694,171)
+parties_1989 <- c("MEP","AVP","ADN","PPN","PPA","PDA","AD86")
+
+votes_1993 <- c(15621,14907,3056,2314,2094,1075,403,397)
+parties_1993 <- c("AVP","MEP","OLA","ADN","PPA","PPN","PDA","Corona")
+
+votes_1994 <- c(17963,15437,4415,1751)
+parties_1994 <- c("AVP","MEP","OLA","PPA")
+
+votes_1997 <- c(19476,17358,3976,2052,1092,519,268)
+parties_1997 <- c("AVP","MEP","OLA","PPA","ADN","PARA","MAS")
+
+votes_2001 <- c(25172,12749,4598,2713,1666,540,531)
+parties_2001 <- c("MEP","AVP","PPA","OLA","ADA","CLA","ADN")
+
+votes_2005 <- c(22002,16725,3661,3330,2414,1725,1092,237,131)
+parties_2005 <- c("MEP","AVP","MPA","RED","PDR","OLA","PPA","MSA","PPT")
+
+votes_2009 <- c(26476,19804,3144,2444,2378,611,139,125)
+parties_2009 <- c("AVP","MEP","PDR","MPA","RED","PPA","CURPA","OLA/MSI")
+
+votes_2013 <- c(506,33103,4518,805,17653,1209)
+parties_2013 <- c("PPA","AVP","PDR","UPP","MEP","RED")
+
+votes_2017<-c(2107,656,22061,468,5531,287,4166,23376)
+parties_2017 <- c("RAIZ", "UPP", "MEP", "CURPA", "POR", "MAS", "RED", "AVP")
+
+votes_2021 <- c(3410, 1809, 4681, 621, 20700, 249, 661, 18335, 574, 312, 5474, 1784)
+parties_2021 <- c("A21", "PPA", "MAS", "UPP", "MEP", "HTC", "POR", "AVP", "PP", "CURPA", "RAIZ", "RED")
+
+
+
 
 # Call the function with the votes and parties vectors
-result <- allocate_seats(votes, parties)
+result_1985 <- allocate_seats(votes_1985 , parties_1985)
+result_1989 <- allocate_seats(votes_1989 , parties_1989)
+result_1993 <- allocate_seats(votes_1993 , parties_1993)
+result_1994 <- allocate_seats(votes_1994 , parties_1994)
+result_1997 <- allocate_seats(votes_1997 , parties_1997)
+result_2001 <- allocate_seats(votes_2001 , parties_2001)
+result_2005 <- allocate_seats(votes_2005 , parties_2005)
+result_2009 <- allocate_seats(votes_2009 , parties_2009)
+result_2013 <- allocate_seats(votes_2013 , parties_2013)
+result_2017 <- allocate_seats(votes_2017 , parties_2017)
+result_2021 <- allocate_seats(votes_2021 , parties_2021)
+
 
 # Print the results
-print(result$seat_allocation)
-print(result$summary_table)
+print(result_1985$seat_allocation)
+print(result_1985$summary_table)
+
+print(result_1989$seat_allocation)
+print(result_1989$summary_table)
+
+print(result_1993$seat_allocation)
+print(result_1993$summary_table)
+
+print(result_1994$seat_allocation)
+print(result_1994$summary_table)
+
+print(result_1997$seat_allocation)
+print(result_1997$summary_table)
+
+print(result_2001$seat_allocation)
+print(result_2001$summary_table)
+
+print(result_2005$seat_allocation)
+print(result_2005$summary_table)
+
+print(result_2009$seat_allocation)
+print(result_2009$summary_table)
+
+print(result_2013$seat_allocation)
+print(result_2013$summary_table)
+
+print(result_2017$seat_allocation)
+print(result_2017$summary_table)
+
+print(result_2021$seat_allocation)
+print(result_2021$summary_table)
 ```
+
+```{r}
+# Define the seat allocation function with added calculations
+allocate_seats <- function(votes, parties, total_seats = 21) {
+  # Step 1: Calculate the total number of votes and the kiesdeler (electoral quotient)
+  total_votes <- sum(votes)
+  kiesdeler <- round(total_votes / total_seats)
+  
+  # Step 2: Initial seat allocation based on the kiesdeler
+  initial_seats <- floor(votes / kiesdeler)
+  
+  # Step 3: Calculate remaining seats to be allocated
+  remaining_seats <- total_seats - sum(initial_seats)
+  
+  # Step 4: Create a data frame to store party names, votes, initial seats, total seats, and divisor for D'Hondt calculation
+  seat_allocation <- data.frame(
+    party = parties,
+    votes = votes,
+    vote_percentage = round((votes / total_votes) * 100, 1),  # Calculate percentage share of total votes, rounded to 1 decimal
+    initial_seats = initial_seats,
+    total_seats = initial_seats,  # Track total seats separately
+    divisor = votes / (initial_seats + 1)
+  )
+  
+  # Add a "kiesdeler_gap" column to show votes needed to reach the kiesdeler if not reached
+  seat_allocation$kiesdeler_gap <- ifelse(seat_allocation$votes < kiesdeler, kiesdeler - seat_allocation$votes, 0)
+  
+  # Prepare columns for each restzetel iteration and corresponding divisors
+  iteration_columns <- matrix(0, nrow = length(parties), ncol = remaining_seats)
+  divisor_columns <- matrix(NA, nrow = length(parties), ncol = remaining_seats)
+  colnames(iteration_columns) <- paste0("Iteration_", 1:remaining_seats)
+  colnames(divisor_columns) <- paste0("Iteration_", 1:remaining_seats, "_div")
+  seat_allocation <- cbind(seat_allocation, divisor_columns, iteration_columns)
+  
+  # Distribute the remaining seats (restzetels)
+  for (i in 1:remaining_seats) {
+    # Record current divisor values for parties that have reached the kiesdeler, rounded to 1 decimal
+    seat_allocation[, paste0("Iteration_", i, "_div")] <- ifelse(seat_allocation$votes >= kiesdeler, 
+                                                                  round(seat_allocation$divisor, 1), NA)
+    
+    # Find the party with the largest divisor among those eligible (who reached the kiesdeler)
+    eligible_parties <- which(seat_allocation$votes >= kiesdeler)
+    max_index <- eligible_parties[which.max(seat_allocation$divisor[eligible_parties])]
+    
+    # Allocate one restzetel by updating the total seats (not initial seats)
+    seat_allocation$total_seats[max_index] <- seat_allocation$total_seats[max_index] + 1
+    
+    # Record the allocation in the corresponding iteration column
+    seat_allocation[max_index, paste0("Iteration_", i)] <- 1
+    
+    # Update the divisor for the party that received the seat
+    seat_allocation$divisor[max_index] <- seat_allocation$votes[max_index] / (seat_allocation$total_seats[max_index] + 1)
+  }
+  
+  # Reorder columns to display divisor and iteration columns in alternating order
+  combined_columns <- c(rbind(paste0("Iteration_", 1:remaining_seats, "_div"), paste0("Iteration_", 1:remaining_seats)))
+  final_columns <- c("party", "votes", "vote_percentage", "initial_seats", "total_seats", "kiesdeler_gap", combined_columns)
+  
+  # Calculate the percentage of votes contributing to earned seats vs restzetels
+  earned_votes <- sum(seat_allocation$initial_seats * kiesdeler)
+  restzetel_votes <- total_votes - earned_votes
+  percent_earned_votes <- round((earned_votes / total_votes) * 100, 1)
+  percent_restzetel_votes <- round((restzetel_votes / total_votes) * 100, 1)
+  
+  # Create a summary table
+  total_initial_seats <- sum(seat_allocation$initial_seats)
+  total_restzetels <- sum(seat_allocation$total_seats) - total_initial_seats
+  
+  summary_table <- data.frame(
+    Kiesdeler = kiesdeler,
+    Total_Votes = total_votes,
+    Total_Initial_Seats = total_initial_seats,
+    Total_Restzetels = total_restzetels,
+    Percent_Earned_Votes = percent_earned_votes,
+    Percent_Restzetel_Votes = percent_restzetel_votes
+  )
+  
+  # Output results
+  list(
+    seat_allocation = seat_allocation[, final_columns],
+    summary_table = summary_table
+  )
+}
+
+# Create a time series of earned vs restzetel vote percentages
+time_series_summary <- data.frame(
+  Election_Year = c(1985, 1989, 1993, 1994, 1997, 2001, 2005, 2009, 2013, 2017, 2021),
+  Percent_Earned_Votes = c(
+    allocate_seats(votes_1985, parties_1985)$summary_table$Percent_Earned_Votes,
+    allocate_seats(votes_1989, parties_1989)$summary_table$Percent_Earned_Votes,
+    allocate_seats(votes_1993, parties_1993)$summary_table$Percent_Earned_Votes,
+    allocate_seats(votes_1994, parties_1994)$summary_table$Percent_Earned_Votes,
+    allocate_seats(votes_1997, parties_1997)$summary_table$Percent_Earned_Votes,
+    allocate_seats(votes_2001, parties_2001)$summary_table$Percent_Earned_Votes,
+    allocate_seats(votes_2005, parties_2005)$summary_table$Percent_Earned_Votes,
+    allocate_seats(votes_2009, parties_2009)$summary_table$Percent_Earned_Votes,
+    allocate_seats(votes_2013, parties_2013)$summary_table$Percent_Earned_Votes,
+    allocate_seats(votes_2017, parties_2017)$summary_table$Percent_Earned_Votes,
+    allocate_seats(votes_2021, parties_2021)$summary_table$Percent_Earned_Votes
+  ),
+  Percent_Restzetel_Votes = c(
+    allocate_seats(votes_1985, parties_1985)$summary_table$Percent_Restzetel_Votes,
+    allocate_seats(votes_1989, parties_1989)$summary_table$Percent_Restzetel_Votes,
+    allocate_seats(votes_1993, parties_1993)$summary_table$Percent_Restzetel_Votes,
+    allocate_seats(votes_1994, parties_1994)$summary_table$Percent_Restzetel_Votes,
+    allocate_seats(votes_1997, parties_1997)$summary_table$Percent_Restzetel_Votes,
+    allocate_seats(votes_2001, parties_2001)$summary_table$Percent_Restzetel_Votes,
+    allocate_seats(votes_2005, parties_2005)$summary_table$Percent_Restzetel_Votes,
+    allocate_seats(votes_2009, parties_2009)$summary_table$Percent_Restzetel_Votes,
+    allocate_seats(votes_2013, parties_2013)$summary_table$Percent_Restzetel_Votes,
+    allocate_seats(votes_2017, parties_2017)$summary_table$Percent_Restzetel_Votes,
+    allocate_seats(votes_2021, parties_2021)$summary_table$Percent_Restzetel_Votes
+  )
+)
+
+# Display the time series summary
+print(time_series_summary)
+
+```
+
 
 ```{r}
 # Load necessary libraries
@@ -111,4 +305,31 @@ print(print_ready_seat_allocation)
 print(print_ready_summary_table)
 ```
 
+```{r}
+# Define a function to extract total restzetels from summary table
+extract_restzetels <- function(results, year) {
+  data.frame(
+    Election_Year = year,
+    Total_Restzetels = results$summary_table$Total_Restzetels
+  )
+}
+
+# Create a time series of total restzetels for each election
+restzetels_time_series <- do.call(rbind, list(
+  extract_restzetels(result_1985, 1985),
+  extract_restzetels(result_1989, 1989),
+  extract_restzetels(result_1993, 1993),
+  extract_restzetels(result_1994, 1994),
+  extract_restzetels(result_1997, 1997),
+  extract_restzetels(result_2001, 2001),
+  extract_restzetels(result_2005, 2005),
+  extract_restzetels(result_2009, 2009),
+  extract_restzetels(result_2013, 2013),
+  extract_restzetels(result_2017, 2017),
+  extract_restzetels(result_2021, 2021)
+))
+
+# Display the time series table
+print(restzetels_time_series)
+```
 
