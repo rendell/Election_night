@@ -355,7 +355,7 @@ library(cowplot)
 library(png)
 library(grid)
 
-# Monte Carlo simulation function
+# Monte Carlo simulation function for a single scenario
 montecarlo_seats <- function(votes, parties, total_seats = 21, iterations = 1000, sd_factor = 0.1) {
   total_votes <- sum(votes)
   mean_votes <- votes
@@ -371,16 +371,30 @@ montecarlo_seats <- function(votes, parties, total_seats = 21, iterations = 1000
   return(simulation_results)
 }
 
-# Visualization function with improved label placement and consistent colors
-visualize_results_with_colors <- function(simulation_results, party_colors, logo_path = NULL) {
+# Monte Carlo ensemble function for multiple scenarios
+ensemble_forecast <- function(vote_data, parties, total_seats = 21, iterations = 1000, sd_factor = 0.1) {
+  scenarios <- colnames(vote_data)
+  
+  all_results <- lapply(scenarios, function(scenario) {
+    votes <- vote_data[[scenario]]
+    montecarlo_seats(votes, parties, total_seats, iterations, sd_factor)
+  })
+  
+  # Combine all scenario results
+  combined_results <- bind_rows(lapply(all_results, function(df) { df }), .id = "Scenario")
+  return(combined_results)
+}
+
+# Visualization function with aggregated ensemble results
+visualize_ensemble_aggregated <- function(simulation_results, party_colors, logo_path = NULL) {
   # Reshape the simulation results for analysis
   melted_results <- simulation_results %>%
-    tidyr::pivot_longer(cols = everything(), names_to = "Party", values_to = "Seats")
+    tidyr::pivot_longer(cols = -Scenario, names_to = "Party", values_to = "Seats")
   
   # Ensure Party has consistent factor levels
   melted_results$Party <- factor(melted_results$Party, levels = names(party_colors))
   
-  # Calculate probabilities, ensuring they sum to 100% for each party
+  # Calculate aggregated probabilities across all scenarios
   probabilities <- melted_results %>%
     dplyr::group_by(Party, Seats) %>%
     dplyr::summarise(Count = dplyr::n(), .groups = "drop") %>%
@@ -411,7 +425,7 @@ visualize_results_with_colors <- function(simulation_results, party_colors, logo
     scale_y_continuous(expand = expansion(mult = c(0, 0.3))) +  # Add space above bars
     scale_fill_manual(values = party_colors) +  # Use custom party colors
     labs(
-      title = "Monte Carlo Simulation (1000 iterations): Seat Allocation Probabilities by Party",
+      title = "Monte Carlo Simulation: Ensemble Forecast Aggregated 11/26/2024",
       x = NULL,
       y = NULL  # Remove Y-axis title
     ) +
@@ -445,23 +459,49 @@ visualize_results_with_colors <- function(simulation_results, party_colors, logo
   }
 }
 
-# Example usage
-votes <- c(19167, 17155, 4857, 4808, 2679, 2710, 1736, 781, 220, 4545, 517)
-parties <- c("MEP", "AVP", "RAIZ", "MAS", "AC21", "PPA", "RED", "CURPA", "HTC", "FUTURO", "LPR")
+# Example data
+vote_data <- data.frame(
+  Party = c("MEP", "AVP", "RAIZ", "MAS", "AC21", "PPA", "RED", "CURPA", "HTC", "FUTURO", "LPR"),
+  BASE = c(19167, 17155, 4857, 4808, 2679, 2710, 1736, 781, 220, 4545, 517),
+  SCE1 = c(18802, 17394, 4793, 4240, 2876, 2891, 1257, 349, 181, 4968, 853),
+  SCE2 = c(15512, 17885, 4353, 3452, 2679, 2431, 3022, 583, 218, 4077, 517),
+  SCE3 = c(19929, 17886, 3889, 4957, 2373, 4909, 5976, 931, 165, 4449, 214),
+  SCE4 = c(19125, 18952, 3381, 3079, 2822, 2822, 1283, 302, 178, 5860, 640),
+  SCE5 = c(18817, 18199, 3803, 4213, 2785, 2917, 1692, 410, 185, 4694, 815)
+)
+
+parties <- vote_data$Party
+vote_data <- vote_data[-1]  # Remove Party column for calculations
+
 party_colors <- setNames(c("#FFBF00", "green", "orange", "cyan", "blue", "orange", "gray", "purple", "pink", "#FF00FF", "red"), parties)
 
-simulation_results <- montecarlo_seats(votes, parties)
+# Perform baseline Monte Carlo simulation
+baseline_results <- montecarlo_seats(vote_data$BASE, parties)
 
+# Perform ensemble forecast
+ensemble_results <- ensemble_forecast(vote_data, parties)
+
+# Visualize baseline
 logo_path <- "C:/Users/Rendell CE/OneDrive - Cornerstone Economics/Lovely Data/Opinion di pueblo/Lovely Data - Horizontal.png"
-final_plot <- visualize_results_with_colors(simulation_results, party_colors, logo_path)
+baseline_plot <- visualize_results_with_colors(baseline_results, party_colors, logo_path)
 
-# Display the final plot
-print(final_plot)
+# Visualize ensemble
+ensemble_plot <- visualize_ensemble_aggregated(ensemble_results, party_colors, logo_path)
 
-# Save the plot with the logo as a JPG
+# Save baseline plot
 ggsave(
-  filename = "seat_allocation_with_logo.jpg",
-  plot = final_plot,
+  filename = "baseline_forecast_with_logo.jpg",
+  plot = baseline_plot,
+  device = "jpeg",
+  width = 12,
+  height = 8,
+  dpi = 300
+)
+
+# Save ensemble plot
+ggsave(
+  filename = "ensemble_forecast_20141126.jpg",
+  plot = ensemble_plot,
   device = "jpeg",
   width = 12,
   height = 8,
