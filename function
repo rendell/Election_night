@@ -1,3 +1,13 @@
+# Packages
+```{r}
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+```
+
+
+
+# Seat allocation function
 ```{r}
 # Define the seat allocation function with detailed output and additional columns
 allocate_seats <- function(votes, parties, total_seats = 21) {
@@ -72,7 +82,10 @@ allocate_seats <- function(votes, parties, total_seats = 21) {
     summary_table = summary_table
   )
 }
+```
 
+# Historical data
+```{r}
 # Example usage: votes vector and parties vector
 votes_1985 <- c(13786,11480,4499,3661,3216)
 parties_1985 <- c("MEP","AVP","PPA","PDA","ADN")
@@ -278,7 +291,7 @@ print(time_series_summary)
 
 ```
 
-
+# Example seat allocation tables
 ```{r}
 # Load necessary libraries
 library(knitr)
@@ -331,5 +344,128 @@ restzetels_time_series <- do.call(rbind, list(
 
 # Display the time series table
 print(restzetels_time_series)
+```
+
+# Monte carlo
+```{r}
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(cowplot)
+library(png)
+library(grid)
+
+# Monte Carlo simulation function
+montecarlo_seats <- function(votes, parties, total_seats = 21, iterations = 1000, sd_factor = 0.1) {
+  total_votes <- sum(votes)
+  mean_votes <- votes
+  
+  simulation_results <- replicate(iterations, {
+    simulated_votes <- rnorm(length(mean_votes), mean = mean_votes, sd = mean_votes * sd_factor)
+    simulated_votes <- round(simulated_votes / sum(simulated_votes) * total_votes)
+    allocate_seats(simulated_votes, parties, total_seats)
+  })
+  
+  simulation_results <- as.data.frame(t(simulation_results))
+  colnames(simulation_results) <- parties
+  return(simulation_results)
+}
+
+# Visualization function with improved label placement and consistent colors
+visualize_results_with_colors <- function(simulation_results, party_colors, logo_path = NULL) {
+  # Reshape the simulation results for analysis
+  melted_results <- simulation_results %>%
+    tidyr::pivot_longer(cols = everything(), names_to = "Party", values_to = "Seats")
+  
+  # Ensure Party has consistent factor levels
+  melted_results$Party <- factor(melted_results$Party, levels = names(party_colors))
+  
+  # Calculate probabilities, ensuring they sum to 100% for each party
+  probabilities <- melted_results %>%
+    dplyr::group_by(Party, Seats) %>%
+    dplyr::summarise(Count = dplyr::n(), .groups = "drop") %>%
+    dplyr::group_by(Party) %>%
+    dplyr::mutate(Probability = Count / sum(Count) * 100) %>%  # Convert to percentage
+    dplyr::ungroup()
+  
+  # Ensure all seat counts (0–10) are represented for each party
+  probabilities <- probabilities %>%
+    tidyr::complete(Seats = 0:10, Party, fill = list(Count = 0, Probability = 0))
+  
+  # Create the main plot
+  main_plot <- ggplot(probabilities, aes(x = Seats, y = Probability, fill = Party)) +
+    geom_bar(stat = "identity", color = "black", alpha = 0.8) +
+    geom_text(
+      aes(label = ifelse(Probability > 0, sprintf("%.1f%%", Probability), ""),
+          vjust = ifelse(Probability < 5, -0.8, -0.5)),  # Adjust position for small bars
+      size = 3, color = "black", fontface = "bold"
+    ) +
+    geom_text(
+      aes(label = ifelse(Probability > 0, Seats, ""),
+          vjust = ifelse(Probability < 5, 0.5, 0.5)),  # Position seat numbers consistently inside bars
+      position = position_stack(vjust = 0.5),
+      size = 3, color = "white", fontface = "bold"
+    ) +
+    facet_wrap(~ Party, scales = "free_y", ncol = 2) +  # Facet by party
+    scale_x_continuous(breaks = 0:10) +  # Ensure all seat numbers are displayed
+    scale_y_continuous(expand = expansion(mult = c(0, 0.3))) +  # Add space above bars
+    scale_fill_manual(values = party_colors) +  # Use custom party colors
+    labs(
+      title = "Monte Carlo Simulation (1000 iterations): Seat Allocation Probabilities by Party",
+      x = NULL,
+      y = NULL  # Remove Y-axis title
+    ) +
+    theme_minimal() +
+    theme(
+      legend.position = "none",  # Remove legend
+      axis.title.x = element_blank(),
+      axis.text.x = element_blank(),  # Remove x-axis labels
+      axis.title.y = element_blank(),  # Remove Y-axis title
+      axis.text.y = element_blank(),  # Remove Y-axis labels
+      plot.title = element_text(size = 16, hjust = 0.5),
+      strip.text = element_text(size = 12, face = "bold"),
+      panel.grid.major = element_blank(),  # Remove gridlines
+      panel.grid.minor = element_blank(),
+      panel.background = element_blank()
+    )
+  
+  # If a logo path is provided, add the logo to the bottom-right corner
+  if (!is.null(logo_path)) {
+    logo <- png::readPNG(logo_path)
+    logo_grob <- grid::rasterGrob(logo, x = 0.95, y = 0.05, just = c("right", "bottom"), width = 0.2)  # Adjust logo size
+    
+    final_plot <- ggdraw() +
+      draw_plot(main_plot) +
+      draw_grob(logo_grob)
+    
+    return(final_plot)
+  } else {
+    # Return the plot without a logo if no logo path is provided
+    return(main_plot)
+  }
+}
+
+# Example usage
+votes <- c(19167, 17155, 4857, 4808, 2679, 2710, 1736, 781, 220, 4545, 517)
+parties <- c("MEP", "AVP", "RAIZ", "MAS", "AC21", "PPA", "RED", "CURPA", "HTC", "FUTURO", "LPR")
+party_colors <- setNames(c("#FFBF00", "green", "orange", "cyan", "blue", "orange", "gray", "purple", "pink", "#FF00FF", "red"), parties)
+
+simulation_results <- montecarlo_seats(votes, parties)
+
+logo_path <- "C:/Users/Rendell CE/OneDrive - Cornerstone Economics/Lovely Data/Opinion di pueblo/Lovely Data - Horizontal.png"
+final_plot <- visualize_results_with_colors(simulation_results, party_colors, logo_path)
+
+# Display the final plot
+print(final_plot)
+
+# Save the plot with the logo as a JPG
+ggsave(
+  filename = "seat_allocation_with_logo.jpg",
+  plot = final_plot,
+  device = "jpeg",
+  width = 12,
+  height = 8,
+  dpi = 300
+)
 ```
 
