@@ -14,74 +14,64 @@ library(grid)
 ```{r}
 # Define the seat allocation function with detailed output and additional columns
 allocate_seats <- function(votes, parties, total_seats = 21) {
-  # Step 1: Calculate the total number of votes and the kiesdeler (electoral quotient)
-  total_votes <- sum(votes)
+  # Check if votes and parties are properly aligned
+  if (length(votes) != length(parties)) {
+    stop("Mismatch between number of votes and parties.")
+  }
+  
+  # Ensure votes are numeric
+  votes <- as.numeric(votes)
+  
+  # Step 1: Calculate total votes and kiesdeler
+  total_votes <- sum(votes, na.rm = TRUE)
   kiesdeler <- round(total_votes / total_seats)
   
-  # Step 2: Initial seat allocation based on the kiesdeler
+  # Step 2: Initial seat allocation
   initial_seats <- floor(votes / kiesdeler)
   
-  # Step 3: Calculate remaining seats to be allocated
+  # Step 3: Remaining seats
   remaining_seats <- total_seats - sum(initial_seats)
   
-  # Step 4: Create a data frame to store party names, votes, initial seats, total seats, and divisor for D'Hondt calculation
+  if (remaining_seats < 0) {
+    stop("Remaining seats calculation error. Check input votes.")
+  }
+  
+  # Step 4: Create seat allocation table
   seat_allocation <- data.frame(
     party = parties,
     votes = votes,
-    vote_percentage = round((votes / total_votes) * 100, 1),  # Calculate percentage share of total votes, rounded to 1 decimal
+    vote_percentage = round((votes / total_votes) * 100, 1),
     initial_seats = initial_seats,
-    total_seats = initial_seats,  # Track total seats separately
+    total_seats = initial_seats,
     divisor = votes / (initial_seats + 1)
   )
   
-  # Add a "kiesdeler_gap" column to show votes needed to reach the kiesdeler if not reached
-  seat_allocation$kiesdeler_gap <- ifelse(seat_allocation$votes < kiesdeler, kiesdeler - seat_allocation$votes, 0)
+  # Add kiesdeler_gap column
+  seat_allocation$kiesdeler_gap <- ifelse(votes < kiesdeler, kiesdeler - votes, 0)
   
-  # Prepare columns for each restzetel iteration and corresponding divisors
-  iteration_columns <- matrix(0, nrow = length(parties), ncol = remaining_seats)
-  divisor_columns <- matrix(NA, nrow = length(parties), ncol = remaining_seats)
-  colnames(iteration_columns) <- paste0("Iteration_", 1:remaining_seats)
-  colnames(divisor_columns) <- paste0("Iteration_", 1:remaining_seats, "_div")
-  seat_allocation <- cbind(seat_allocation, divisor_columns, iteration_columns)
-  
-  # Distribute the remaining seats (restzetels)
+  # Step 5: Allocate restzetels
   for (i in 1:remaining_seats) {
-    # Record current divisor values for parties that have reached the kiesdeler, rounded to 1 decimal
-    seat_allocation[, paste0("Iteration_", i, "_div")] <- ifelse(seat_allocation$votes >= kiesdeler, 
-                                                                  round(seat_allocation$divisor, 1), NA)
-    
-    # Find the party with the largest divisor among those eligible (who reached the kiesdeler)
     eligible_parties <- which(seat_allocation$votes >= kiesdeler)
+    if (length(eligible_parties) == 0) {
+      stop("No eligible parties for restzetels. Check input votes.")
+    }
     max_index <- eligible_parties[which.max(seat_allocation$divisor[eligible_parties])]
-    
-    # Allocate one restzetel by updating the total seats (not initial seats)
     seat_allocation$total_seats[max_index] <- seat_allocation$total_seats[max_index] + 1
-    
-    # Record the allocation in the corresponding iteration column
-    seat_allocation[max_index, paste0("Iteration_", i)] <- 1
-    
-    # Update the divisor for the party that received the seat
-    seat_allocation$divisor[max_index] <- seat_allocation$votes[max_index] / (seat_allocation$total_seats[max_index] + 1)
+    seat_allocation$divisor[max_index] <- seat_allocation$votes[max_index] / 
+                                          (seat_allocation$total_seats[max_index] + 1)
   }
   
-  # Reorder columns to display divisor and iteration columns in alternating order
-  combined_columns <- c(rbind(paste0("Iteration_", 1:remaining_seats, "_div"), paste0("Iteration_", 1:remaining_seats)))
-  final_columns <- c("party", "votes", "vote_percentage", "initial_seats", "total_seats", "kiesdeler_gap", combined_columns)
-  
-  # Create a summary table
-  total_initial_seats <- sum(seat_allocation$initial_seats)
-  total_restzetels <- sum(seat_allocation$total_seats) - total_initial_seats
-  
+  # Summary table
   summary_table <- data.frame(
     Kiesdeler = kiesdeler,
     Total_Votes = total_votes,
-    Total_Initial_Seats = total_initial_seats,
-    Total_Restzetels = total_restzetels
+    Total_Initial_Seats = sum(initial_seats),
+    Total_Restzetels = remaining_seats
   )
   
-  # Output results
+  # Output
   list(
-    seat_allocation = seat_allocation[, final_columns],
+    seat_allocation = seat_allocation,
     summary_table = summary_table
   )
 }
@@ -351,12 +341,6 @@ print(restzetels_time_series)
 
 # Monte carlo
 ```{r}
-library(ggplot2)
-library(dplyr)
-library(tidyr)
-library(cowplot)
-library(png)
-library(grid)
 
 # Juju data
 vote_data <- data.frame(
@@ -376,6 +360,38 @@ party_colors <- setNames(
   c("yellow", "green", "orange", "cyan", "blue", "orange", "gray", "purple", "pink", "purple", "red"),
   c("MEP", "AVP", "RAIZ", "MAS", "AC21", "PPA", "RED", "CURPA", "HTC", "FUTURO", "LPR")
 )
+
+montecarlo_seats <- function(votes, parties, total_seats = 21, iterations = 1000, sd_factor = 0.1) {
+  total_votes <- sum(votes, na.rm = TRUE)
+  
+  # Generate simulations
+  simulation_results <- replicate(iterations, {
+    simulated_votes <- rnorm(length(votes), mean = votes, sd = votes * sd_factor)
+    simulated_votes <- pmax(simulated_votes, 0)  # Ensure no negative votes
+    simulated_votes <- round(simulated_votes / sum(simulated_votes) * total_votes)
+    
+    # Allocate seats
+    allocate_seats(simulated_votes, parties, total_seats)$seat_allocation$total_seats
+  })
+  
+  # Convert results to data frame
+  simulation_results <- as.data.frame(t(simulation_results))
+  colnames(simulation_results) <- parties
+  return(simulation_results)
+}
+
+# Ensemble forecast
+ensemble_forecast <- function(vote_data, parties, total_seats = 21, iterations = 1000, sd_factor = 0.1) {
+  scenarios <- colnames(vote_data)
+  results <- lapply(scenarios, function(scenario) {
+    montecarlo_seats(vote_data[[scenario]], parties, total_seats, iterations, sd_factor)
+  })
+  names(results) <- scenarios
+  results <- bind_rows(results, .id = "Scenario")
+  return(results)
+}
+
+
 
 # Perform baseline Monte Carlo simulation
 baseline_results <- montecarlo_seats(vote_data$BASE, parties)
@@ -406,14 +422,16 @@ visualize_results_with_colors <- function(simulation_results, party_colors, logo
   # Create the main plot
   main_plot <- ggplot(probabilities, aes(x = Seats, y = Probability, fill = Party)) +
     geom_bar(stat = "identity", color = "black", alpha = 0.8) +
+    # Add percentage above the bars
     geom_text(
-      aes(label = ifelse(Probability > 0, sprintf("%.1f%%", Probability), ""),
-          vjust = ifelse(Probability < 5, -0.8, -0.5)),  # Adjust position for small bars
+      aes(label = ifelse(Probability > 0, sprintf("%.1f%%", Probability), ""), 
+          vjust = -0.5),  # Position above the bar
       size = 3, color = "black", fontface = "bold"
     ) +
+    # Add seat count inside the bars
     geom_text(
-      aes(label = ifelse(Probability > 0, Seats, ""),
-          vjust = ifelse(Probability < 5, 0.5, 0.5)),  # Position seat numbers consistently inside bars
+      aes(label = ifelse(Probability > 0, Seats, ""), 
+          vjust = 0.5),  # Position inside the bar
       position = position_stack(vjust = 0.5),
       size = 3, color = "white", fontface = "bold"
     ) +
@@ -461,6 +479,77 @@ logo_path <- "C:/Users/Rendell CE/OneDrive - Cornerstone Economics/Lovely Data/O
 baseline_plot <- visualize_results_with_colors(baseline_results, party_colors, logo_path)
 
 # Visualize ensemble
+visualize_ensemble_aggregated <- function(ensemble_results, party_colors, logo_path = NULL) {
+  # Reshape the ensemble results for aggregated visualization
+  aggregated_results <- ensemble_results %>%
+    pivot_longer(cols = -Scenario, names_to = "Party", values_to = "Seats") %>%
+    group_by(Scenario, Party, Seats) %>%
+    summarise(Count = n(), .groups = "drop") %>%
+    group_by(Scenario, Party) %>%
+    mutate(Probability = Count / sum(Count) * 100) %>%
+    ungroup()
+  
+  # Aggregate probabilities across all scenarios
+  aggregated_probabilities <- aggregated_results %>%
+    group_by(Party, Seats) %>%
+    summarise(Aggregated_Probability = mean(Probability, na.rm = TRUE), .groups = "drop") %>%
+    complete(Seats = 0:10, Party, fill = list(Aggregated_Probability = 0))
+  
+  # Create the plot
+  ensemble_plot <- ggplot(aggregated_probabilities, aes(x = Seats, y = Aggregated_Probability, fill = Party)) +
+    geom_bar(stat = "identity", color = "black", alpha = 0.8) +
+    # Add percentage above the bars
+    geom_text(
+      aes(label = ifelse(Aggregated_Probability > 0, sprintf("%.1f%%", Aggregated_Probability), ""),
+          vjust = -0.5),
+      size = 3, color = "black", fontface = "bold"
+    ) +
+    # Add seat count inside the bars
+    geom_text(
+      aes(label = ifelse(Aggregated_Probability > 0, Seats, ""),
+          vjust = 0.5),
+      position = position_stack(vjust = 0.5),
+      size = 3, color = "white", fontface = "bold"
+    ) +
+    facet_wrap(~ Party, scales = "free_y", ncol = 2) +
+    scale_x_continuous(breaks = 0:10) +
+    scale_y_continuous(expand = expansion(mult = c(0, 0.3))) +
+    scale_fill_manual(values = party_colors) +
+    labs(
+      title = "Ensemble Forecast: Aggregated Seat Allocation Probabilities",
+      x = NULL,
+      y = NULL
+    ) +
+    theme_minimal() +
+    theme(
+      legend.position = "none",
+      axis.title.x = element_blank(),
+      axis.text.x = element_blank(),
+      axis.title.y = element_blank(),
+      axis.text.y = element_blank(),
+      plot.title = element_text(size = 16, hjust = 0.5),
+      strip.text = element_text(size = 12, face = "bold"),
+      panel.grid.major = element_blank(),
+      panel.grid.minor = element_blank(),
+      panel.background = element_blank()
+    )
+  
+  # Add logo if specified
+  if (!is.null(logo_path)) {
+    logo <- png::readPNG(logo_path)
+    logo_grob <- grid::rasterGrob(logo, x = 0.95, y = 0.05, just = c("right", "bottom"), width = 0.2)
+    
+    final_plot <- ggdraw() +
+      draw_plot(ensemble_plot) +
+      draw_grob(logo_grob)
+    
+    return(final_plot)
+  } else {
+    return(ensemble_plot)
+  }
+}
+
+
 ensemble_plot <- visualize_ensemble_aggregated(ensemble_results, party_colors, logo_path)
 
 # Save baseline plot
@@ -475,7 +564,7 @@ ggsave(
 
 # Save ensemble plot
 ggsave(
-  filename = "ensemble_forecast_20141126.jpg",
+  filename = "ensemble_forecast_aggregated.jpg",
   plot = ensemble_plot,
   device = "jpeg",
   width = 12,
@@ -483,114 +572,4 @@ ggsave(
   dpi = 300
 )
 ```
-
-# Vizualization for restzetels probability
-
-```{r}
-
-
-visualize_restzetel_probabilities <- function(simulation_results, initial_seats, party_colors, logo_path = NULL) {
-  # Align names of initial_seats and simulation_results
-  if (!all(colnames(simulation_results) == names(initial_seats))) {
-    warning("Aligning column names of simulation_results with initial_seats names.")
-    colnames(simulation_results) <- names(initial_seats)
-  }
-  
-  # Recheck dimensions
-  if (ncol(simulation_results) != length(initial_seats)) {
-    print("Debugging Dimension Mismatch:")
-    print(paste("Simulation Results Columns:", ncol(simulation_results)))
-    print(paste("Initial Seats Length:", length(initial_seats)))
-    print("Initial Seats Names:", names(initial_seats))
-    print("Simulation Results Names:", colnames(simulation_results))
-    stop("Mismatch persists between simulation_results columns and initial_seats length.")
-  }
-
-  # Ensure numeric data
-  simulation_results[] <- lapply(simulation_results, as.numeric)
-  initial_seats <- as.numeric(initial_seats)
-  
-  # Calculate restzetels for each iteration
-  restzetel_results <- as.data.frame(t(simulation_results - initial_seats))
-  colnames(restzetel_results) <- names(initial_seats)
-  
-  # Reshape the data for analysis
-  melted_results <- restzetel_results %>%
-    tidyr::pivot_longer(cols = everything(), names_to = "Party", values_to = "Restzetels")
-  
-  # Calculate probabilities
-  probabilities <- melted_results %>%
-    dplyr::group_by(Party, Restzetels) %>%
-    dplyr::summarise(Count = dplyr::n(), .groups = "drop") %>%
-    dplyr::group_by(Party) %>%
-    dplyr::mutate(Probability = Count / sum(Count) * 100) %>%
-    dplyr::ungroup()
-  
-  # Ensure all restzetel counts (0–10) are represented for each party
-  probabilities <- probabilities %>%
-    tidyr::complete(Restzetels = 0:10, Party, fill = list(Count = 0, Probability = 0))
-  
-  # Create the plot
-  restzetel_plot <- ggplot(probabilities, aes(x = Restzetels, y = Probability, fill = Party)) +
-    geom_bar(stat = "identity", color = "black", alpha = 0.8) +
-    geom_text(
-      aes(label = ifelse(Probability > 0, sprintf("%.1f%%", Probability), "")),
-      position = position_stack(vjust = 0.5),
-      size = 3, color = "white", fontface = "bold"
-    ) +
-    facet_wrap(~ Party, scales = "free_y", ncol = 2) +  # Facet by party
-    scale_x_continuous(breaks = 0:10) +  # Ensure all restzetel numbers are displayed
-    scale_y_continuous(expand = expansion(mult = c(0, 0.1))) +  # Add space above bars
-    scale_fill_manual(values = party_colors) +  # Use custom party colors
-    labs(
-      title = "Monte Carlo Simulation: Restzetel Probabilities by Party",
-      x = NULL,
-      y = NULL  # Remove axis titles
-    ) +
-    theme_minimal() +
-    theme(
-      legend.position = "none",  # Remove legend
-      axis.title.x = element_blank(),
-      axis.text.x = element_blank(),  # Remove x-axis labels
-      axis.title.y = element_blank(),  # Remove y-axis title
-      axis.text.y = element_blank(),  # Remove y-axis labels
-      plot.title = element_text(size = 16, hjust = 0.5),
-      strip.text = element_text(size = 12, face = "bold"),
-      panel.grid.major = element_blank(),  # Remove gridlines
-      panel.grid.minor = element_blank(),
-      panel.background = element_blank()
-    )
-  
-  # If a logo path is provided, add the logo to the bottom-right corner
-  if (!is.null(logo_path)) {
-    logo <- png::readPNG(logo_path)
-    logo_grob <- grid::rasterGrob(logo, x = 0.95, y = 0.05, just = c("right", "bottom"), width = 0.2)  # Adjust logo size
-    
-    final_plot <- ggdraw() +
-      draw_plot(restzetel_plot) +
-      draw_grob(logo_grob)
-    
-    return(final_plot)
-  } else {
-    # Return the plot without a logo if no logo path is provided
-    return(restzetel_plot)
-  }
-}
-
-
-
-# Example Usage
-restzetel_plot <- visualize_restzetel_probabilities(ensemble_results, initial_seats, party_colors, logo_path)
-
-# Save the plot
-ggsave(
-  filename = "restzetel_probabilities.jpg",
-  plot = restzetel_plot,
-  device = "jpeg",
-  width = 12,
-  height = 8,
-  dpi = 300
-)
-```
-
 
