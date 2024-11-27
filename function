@@ -1,8 +1,11 @@
 # Packages
 ```{r}
+library(ggplot2)
 library(dplyr)
 library(tidyr)
-library(ggplot2)
+library(cowplot)
+library(png)
+library(grid)
 ```
 
 
@@ -355,46 +358,40 @@ library(cowplot)
 library(png)
 library(grid)
 
-# Monte Carlo simulation function for a single scenario
-montecarlo_seats <- function(votes, parties, total_seats = 21, iterations = 1000, sd_factor = 0.1) {
-  total_votes <- sum(votes)
-  mean_votes <- votes
-  
-  simulation_results <- replicate(iterations, {
-    simulated_votes <- rnorm(length(mean_votes), mean = mean_votes, sd = mean_votes * sd_factor)
-    simulated_votes <- round(simulated_votes / sum(simulated_votes) * total_votes)
-    allocate_seats(simulated_votes, parties, total_seats)
-  })
-  
-  simulation_results <- as.data.frame(t(simulation_results))
-  colnames(simulation_results) <- parties
-  return(simulation_results)
-}
+# Juju data
+vote_data <- data.frame(
+  Party = c("MEP", "AVP", "RAIZ", "MAS", "AC21", "PPA", "RED", "CURPA", "HTC", "FUTURO", "LPR"),
+  BASE = c(19167, 17155, 4857, 4808, 2679, 2710, 1736, 781, 220, 4545, 517),
+  SCE1 = c(18802, 17394, 4793, 4240, 2876, 2891, 1257, 349, 181, 4968, 853),
+  SCE2 = c(15512, 17885, 4353, 3452, 2679, 2431, 3022, 583, 218, 4077, 517),
+  SCE3 = c(19929, 17886, 3889, 4957, 2373, 4909, 5976, 931, 165, 4449, 214),
+  SCE4 = c(19125, 18952, 3381, 3079, 2822, 2822, 1283, 302, 178, 5860, 640),
+  SCE5 = c(18817, 18199, 3803, 4213, 2785, 2917, 1692, 410, 185, 4694, 815)
+)
 
-# Monte Carlo ensemble function for multiple scenarios
-ensemble_forecast <- function(vote_data, parties, total_seats = 21, iterations = 1000, sd_factor = 0.1) {
-  scenarios <- colnames(vote_data)
-  
-  all_results <- lapply(scenarios, function(scenario) {
-    votes <- vote_data[[scenario]]
-    montecarlo_seats(votes, parties, total_seats, iterations, sd_factor)
-  })
-  
-  # Combine all scenario results
-  combined_results <- bind_rows(lapply(all_results, function(df) { df }), .id = "Scenario")
-  return(combined_results)
-}
+parties <- vote_data$Party
+vote_data <- vote_data[-1]  # Remove Party column for calculations
 
-# Visualization function with aggregated ensemble results
-visualize_ensemble_aggregated <- function(simulation_results, party_colors, logo_path = NULL) {
+party_colors <- setNames(
+  c("yellow", "green", "orange", "cyan", "blue", "orange", "gray", "purple", "pink", "purple", "red"),
+  c("MEP", "AVP", "RAIZ", "MAS", "AC21", "PPA", "RED", "CURPA", "HTC", "FUTURO", "LPR")
+)
+
+# Perform baseline Monte Carlo simulation
+baseline_results <- montecarlo_seats(vote_data$BASE, parties)
+
+# Perform ensemble forecast
+ensemble_results <- ensemble_forecast(vote_data, parties)
+
+visualize_results_with_colors <- function(simulation_results, party_colors, logo_path = NULL) {
   # Reshape the simulation results for analysis
   melted_results <- simulation_results %>%
-    tidyr::pivot_longer(cols = -Scenario, names_to = "Party", values_to = "Seats")
+    tidyr::pivot_longer(cols = everything(), names_to = "Party", values_to = "Seats")
   
   # Ensure Party has consistent factor levels
   melted_results$Party <- factor(melted_results$Party, levels = names(party_colors))
   
-  # Calculate aggregated probabilities across all scenarios
+  # Calculate probabilities, ensuring they sum to 100% for each party
   probabilities <- melted_results %>%
     dplyr::group_by(Party, Seats) %>%
     dplyr::summarise(Count = dplyr::n(), .groups = "drop") %>%
@@ -425,7 +422,7 @@ visualize_ensemble_aggregated <- function(simulation_results, party_colors, logo
     scale_y_continuous(expand = expansion(mult = c(0, 0.3))) +  # Add space above bars
     scale_fill_manual(values = party_colors) +  # Use custom party colors
     labs(
-      title = "Monte Carlo Simulation: Ensemble Forecast Aggregated 11/26/2024",
+      title = "Monte Carlo Simulation: Seat Allocation Probabilities by Party",
       x = NULL,
       y = NULL  # Remove Y-axis title
     ) +
@@ -459,28 +456,6 @@ visualize_ensemble_aggregated <- function(simulation_results, party_colors, logo
   }
 }
 
-# Example data
-vote_data <- data.frame(
-  Party = c("MEP", "AVP", "RAIZ", "MAS", "AC21", "PPA", "RED", "CURPA", "HTC", "FUTURO", "LPR"),
-  BASE = c(19167, 17155, 4857, 4808, 2679, 2710, 1736, 781, 220, 4545, 517),
-  SCE1 = c(18802, 17394, 4793, 4240, 2876, 2891, 1257, 349, 181, 4968, 853),
-  SCE2 = c(15512, 17885, 4353, 3452, 2679, 2431, 3022, 583, 218, 4077, 517),
-  SCE3 = c(19929, 17886, 3889, 4957, 2373, 4909, 5976, 931, 165, 4449, 214),
-  SCE4 = c(19125, 18952, 3381, 3079, 2822, 2822, 1283, 302, 178, 5860, 640),
-  SCE5 = c(18817, 18199, 3803, 4213, 2785, 2917, 1692, 410, 185, 4694, 815)
-)
-
-parties <- vote_data$Party
-vote_data <- vote_data[-1]  # Remove Party column for calculations
-
-party_colors <- setNames(c("#FFBF00", "green", "orange", "cyan", "blue", "orange", "gray", "purple", "pink", "#FF00FF", "red"), parties)
-
-# Perform baseline Monte Carlo simulation
-baseline_results <- montecarlo_seats(vote_data$BASE, parties)
-
-# Perform ensemble forecast
-ensemble_results <- ensemble_forecast(vote_data, parties)
-
 # Visualize baseline
 logo_path <- "C:/Users/Rendell CE/OneDrive - Cornerstone Economics/Lovely Data/Opinion di pueblo/Lovely Data - Horizontal.png"
 baseline_plot <- visualize_results_with_colors(baseline_results, party_colors, logo_path)
@@ -508,4 +483,114 @@ ggsave(
   dpi = 300
 )
 ```
+
+# Vizualization for restzetels probability
+
+```{r}
+
+
+visualize_restzetel_probabilities <- function(simulation_results, initial_seats, party_colors, logo_path = NULL) {
+  # Align names of initial_seats and simulation_results
+  if (!all(colnames(simulation_results) == names(initial_seats))) {
+    warning("Aligning column names of simulation_results with initial_seats names.")
+    colnames(simulation_results) <- names(initial_seats)
+  }
+  
+  # Recheck dimensions
+  if (ncol(simulation_results) != length(initial_seats)) {
+    print("Debugging Dimension Mismatch:")
+    print(paste("Simulation Results Columns:", ncol(simulation_results)))
+    print(paste("Initial Seats Length:", length(initial_seats)))
+    print("Initial Seats Names:", names(initial_seats))
+    print("Simulation Results Names:", colnames(simulation_results))
+    stop("Mismatch persists between simulation_results columns and initial_seats length.")
+  }
+
+  # Ensure numeric data
+  simulation_results[] <- lapply(simulation_results, as.numeric)
+  initial_seats <- as.numeric(initial_seats)
+  
+  # Calculate restzetels for each iteration
+  restzetel_results <- as.data.frame(t(simulation_results - initial_seats))
+  colnames(restzetel_results) <- names(initial_seats)
+  
+  # Reshape the data for analysis
+  melted_results <- restzetel_results %>%
+    tidyr::pivot_longer(cols = everything(), names_to = "Party", values_to = "Restzetels")
+  
+  # Calculate probabilities
+  probabilities <- melted_results %>%
+    dplyr::group_by(Party, Restzetels) %>%
+    dplyr::summarise(Count = dplyr::n(), .groups = "drop") %>%
+    dplyr::group_by(Party) %>%
+    dplyr::mutate(Probability = Count / sum(Count) * 100) %>%
+    dplyr::ungroup()
+  
+  # Ensure all restzetel counts (0–10) are represented for each party
+  probabilities <- probabilities %>%
+    tidyr::complete(Restzetels = 0:10, Party, fill = list(Count = 0, Probability = 0))
+  
+  # Create the plot
+  restzetel_plot <- ggplot(probabilities, aes(x = Restzetels, y = Probability, fill = Party)) +
+    geom_bar(stat = "identity", color = "black", alpha = 0.8) +
+    geom_text(
+      aes(label = ifelse(Probability > 0, sprintf("%.1f%%", Probability), "")),
+      position = position_stack(vjust = 0.5),
+      size = 3, color = "white", fontface = "bold"
+    ) +
+    facet_wrap(~ Party, scales = "free_y", ncol = 2) +  # Facet by party
+    scale_x_continuous(breaks = 0:10) +  # Ensure all restzetel numbers are displayed
+    scale_y_continuous(expand = expansion(mult = c(0, 0.1))) +  # Add space above bars
+    scale_fill_manual(values = party_colors) +  # Use custom party colors
+    labs(
+      title = "Monte Carlo Simulation: Restzetel Probabilities by Party",
+      x = NULL,
+      y = NULL  # Remove axis titles
+    ) +
+    theme_minimal() +
+    theme(
+      legend.position = "none",  # Remove legend
+      axis.title.x = element_blank(),
+      axis.text.x = element_blank(),  # Remove x-axis labels
+      axis.title.y = element_blank(),  # Remove y-axis title
+      axis.text.y = element_blank(),  # Remove y-axis labels
+      plot.title = element_text(size = 16, hjust = 0.5),
+      strip.text = element_text(size = 12, face = "bold"),
+      panel.grid.major = element_blank(),  # Remove gridlines
+      panel.grid.minor = element_blank(),
+      panel.background = element_blank()
+    )
+  
+  # If a logo path is provided, add the logo to the bottom-right corner
+  if (!is.null(logo_path)) {
+    logo <- png::readPNG(logo_path)
+    logo_grob <- grid::rasterGrob(logo, x = 0.95, y = 0.05, just = c("right", "bottom"), width = 0.2)  # Adjust logo size
+    
+    final_plot <- ggdraw() +
+      draw_plot(restzetel_plot) +
+      draw_grob(logo_grob)
+    
+    return(final_plot)
+  } else {
+    # Return the plot without a logo if no logo path is provided
+    return(restzetel_plot)
+  }
+}
+
+
+
+# Example Usage
+restzetel_plot <- visualize_restzetel_probabilities(ensemble_results, initial_seats, party_colors, logo_path)
+
+# Save the plot
+ggsave(
+  filename = "restzetel_probabilities.jpg",
+  plot = restzetel_plot,
+  device = "jpeg",
+  width = 12,
+  height = 8,
+  dpi = 300
+)
+```
+
 
