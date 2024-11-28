@@ -340,6 +340,8 @@ print(restzetels_time_series)
 ```
 
 # Monte carlo
+
+## Ensemble forecast
 ```{r}
 
 # Juju data
@@ -357,7 +359,7 @@ parties <- vote_data$Party
 vote_data <- vote_data[-1]  # Remove Party column for calculations
 
 party_colors <- setNames(
-  c("yellow", "green", "orange", "cyan", "blue", "orange", "gray", "purple", "pink", "purple", "red"),
+  c("#FDDA0D", "green", "orange", "cyan", "blue", "orange", "gray", "purple", "pink", "purple", "red"),
   c("MEP", "AVP", "RAIZ", "MAS", "AC21", "PPA", "RED", "CURPA", "HTC", "FUTURO", "LPR")
 )
 
@@ -381,7 +383,7 @@ montecarlo_seats <- function(votes, parties, total_seats = 21, iterations = 1000
 }
 
 # Ensemble forecast
-ensemble_forecast <- function(vote_data, parties, total_seats = 21, iterations = 1000, sd_factor = 0.1) {
+ensemble_forecast <- function(vote_data, parties, total_seats = 21, iterations = 10000, sd_factor = 0.1) {
   scenarios <- colnames(vote_data)
   results <- lapply(scenarios, function(scenario) {
     montecarlo_seats(vote_data[[scenario]], parties, total_seats, iterations, sd_factor)
@@ -493,20 +495,23 @@ visualize_ensemble_aggregated <- function(ensemble_results, party_colors, logo_p
   aggregated_probabilities <- aggregated_results %>%
     group_by(Party, Seats) %>%
     summarise(Aggregated_Probability = mean(Probability, na.rm = TRUE), .groups = "drop") %>%
-    complete(Seats = 0:10, Party, fill = list(Aggregated_Probability = 0))
+    complete(Seats = 0:10, Party, fill = list(Aggregated_Probability = 0)) %>%
+    group_by(Party) %>%
+    mutate(Normalized_Probability = Aggregated_Probability / sum(Aggregated_Probability) * 100) %>% # Normalize to 100%
+    ungroup()
   
   # Create the plot
-  ensemble_plot <- ggplot(aggregated_probabilities, aes(x = Seats, y = Aggregated_Probability, fill = Party)) +
+  ensemble_plot <- ggplot(aggregated_probabilities, aes(x = Seats, y = Normalized_Probability, fill = Party)) +
     geom_bar(stat = "identity", color = "black", alpha = 0.8) +
     # Add percentage above the bars
     geom_text(
-      aes(label = ifelse(Aggregated_Probability > 0, sprintf("%.1f%%", Aggregated_Probability), ""),
+      aes(label = ifelse(Normalized_Probability > 0, sprintf("%.1f%%", Normalized_Probability), ""),
           vjust = -0.5),
       size = 3, color = "black", fontface = "bold"
     ) +
     # Add seat count inside the bars
     geom_text(
-      aes(label = ifelse(Aggregated_Probability > 0, Seats, ""),
+      aes(label = ifelse(Normalized_Probability > 0, Seats, ""),
           vjust = 0.5),
       position = position_stack(vjust = 0.5),
       size = 3, color = "white", fontface = "bold"
@@ -516,7 +521,7 @@ visualize_ensemble_aggregated <- function(ensemble_results, party_colors, logo_p
     scale_y_continuous(expand = expansion(mult = c(0, 0.3))) +
     scale_fill_manual(values = party_colors) +
     labs(
-      title = "Ensemble Forecast: Aggregated Seat Allocation Probabilities",
+      title = "A Dynamic Forecast: Simulating Aruba's 2024 Parliamentary Seat Allocation",
       x = NULL,
       y = NULL
     ) +
@@ -566,6 +571,176 @@ ggsave(
 ggsave(
   filename = "ensemble_forecast_aggregated.jpg",
   plot = ensemble_plot,
+  device = "jpeg",
+  width = 12,
+  height = 8,
+  dpi = 300
+)
+```
+
+## Restzetels calculation
+```{r}
+# Function to extract restzetels
+extract_restzetels_montecarlo <- function(votes, parties, total_seats = 21, iterations = 10000, sd_factor = 0.1) {
+  total_votes <- sum(votes, na.rm = TRUE)
+  
+  # Generate simulations
+  restzetels_results <- replicate(iterations, {
+    simulated_votes <- rnorm(length(votes), mean = votes, sd = votes * sd_factor)
+    simulated_votes <- pmax(simulated_votes, 0)  # Ensure no negative votes
+    simulated_votes <- round(simulated_votes / sum(simulated_votes) * total_votes)
+    
+    # Allocate seats and extract restzetels
+    result <- allocate_seats(simulated_votes, parties, total_seats)
+    restzetels <- result$seat_allocation$total_seats - result$seat_allocation$initial_seats
+    return(restzetels)
+  })
+  
+  # Convert results to data frame
+  restzetels_results <- as.data.frame(t(restzetels_results))
+  colnames(restzetels_results) <- parties
+  return(restzetels_results)
+}
+
+# Ensemble forecast for restzetels
+ensemble_restzetels <- function(vote_data, parties, total_seats = 21, iterations = 10000, sd_factor = 0.1) {
+  scenarios <- colnames(vote_data)
+  results <- lapply(scenarios, function(scenario) {
+    extract_restzetels_montecarlo(vote_data[[scenario]], parties, total_seats, iterations, sd_factor)
+  })
+  names(results) <- scenarios
+  results <- bind_rows(results, .id = "Scenario")
+  return(results)
+}
+
+# Calculate restzetels for ensemble
+ensemble_restzetels_results <- ensemble_restzetels(vote_data, parties)
+
+# Visualize restzetels
+visualize_restzetels <- function(restzetels_results, party_colors, logo_path = NULL) {
+  # Reshape restzetels results for analysis (excluding the "Scenario" column)
+  melted_results <- restzetels_results %>%
+    tidyr::pivot_longer(cols = -Scenario, names_to = "Party", values_to = "Restzetels") %>%
+    dplyr::filter(!is.na(Restzetels))  # Filter out rows with missing values
+  
+  # Ensure Party has consistent factor levels
+  melted_results$Party <- factor(melted_results$Party, levels = names(party_colors))
+  
+  # Calculate probabilities for restzetels
+  probabilities <- melted_results %>%
+    dplyr::group_by(Party, Restzetels) %>%
+    dplyr::summarise(Count = dplyr::n(), .groups = "drop") %>%
+    dplyr::group_by(Party) %>%
+    dplyr::mutate(Probability = Count / sum(Count) * 100) %>%  # Convert to percentage
+    dplyr::ungroup()
+  
+  # Ensure all restzetel counts (0–5) are represented for each party
+  probabilities <- probabilities %>%
+    tidyr::complete(Restzetels = 0:5, Party, fill = list(Count = 0, Probability = 0))
+  
+  # Create the main plot
+  restzetels_plot <- ggplot(probabilities, aes(x = Restzetels, y = Probability, fill = Party)) +
+    geom_bar(stat = "identity", color = "black", alpha = 0.8) +
+    # Add percentage above the bars
+    geom_text(
+      aes(label = ifelse(Probability > 0, sprintf("%.1f%%", Probability), ""), 
+          vjust = -0.5),  # Position above the bar
+      size = 3, color = "black", fontface = "bold"
+    ) +
+    # Add restzetel count inside the bars
+    geom_text(
+      aes(label = ifelse(Probability > 0, Restzetels, ""), 
+          vjust = 0.5),  # Position inside the bar
+      position = position_stack(vjust = 0.5),
+      size = 3, color = "white", fontface = "bold"
+    ) +
+    facet_wrap(~ Party, scales = "free_y", ncol = 2) +  # Facet by party
+    scale_x_continuous(breaks = 0:5, limits = c(0, 5)) +  # Limit X-axis to 0 to 5
+    scale_y_continuous(expand = expansion(mult = c(0, 0.3))) +  # Add space above bars
+    scale_fill_manual(values = party_colors) +  # Use custom party colors
+    labs(title = "Monte Carlo Simulation: Restzetels Distribution by Party") +
+    theme_minimal() +
+    theme(
+      legend.position = "none",  # Remove legend
+      axis.title.x = element_blank(),  # Remove X-axis title
+      axis.text.x = element_blank(),  # Remove X-axis labels
+      axis.title.y = element_blank(),  # Remove Y-axis title
+      axis.text.y = element_blank(),  # Remove Y-axis labels
+      plot.title = element_text(size = 16, hjust = 0.5),
+      strip.text = element_text(size = 12, face = "bold"),
+      panel.grid.major = element_blank(),  # Remove gridlines
+      panel.grid.minor = element_blank(),
+      panel.background = element_blank()
+    )
+  
+  # If a logo path is provided, add the logo to the bottom-right corner
+  if (!is.null(logo_path)) {
+    logo <- png::readPNG(logo_path)
+    logo_grob <- grid::rasterGrob(logo, x = 0.95, y = 0.05, just = c("right", "bottom"), width = 0.2)  # Adjust logo size
+    
+    final_plot <- ggdraw() +
+      draw_plot(restzetels_plot) +
+      draw_grob(logo_grob)
+    
+    return(final_plot)
+  } else {
+    # Return the plot without a logo if no logo path is provided
+    return(restzetels_plot)
+  }
+}
+
+# Re-run visualization
+restzetels_plot <- visualize_restzetels(ensemble_restzetels_results, party_colors, logo_path)
+
+# Save restzetels plot
+ggsave(
+  filename = "ensemble_restzetels_distribution_fixed.jpg",
+  plot = restzetels_plot,
+  device = "jpeg",
+  width = 12,
+  height = 8,
+  dpi = 300
+)
+
+```
+## Total restzetels per iteration
+```{r}
+# Calculate total restzetels per iteration
+total_restzetels <- ensemble_restzetels_results %>%
+  rowwise() %>%
+  mutate(Total_Restzetels = sum(across(-Scenario), na.rm = TRUE)) %>%
+  ungroup() %>%
+  dplyr::count(Total_Restzetels, name = "Count") %>%
+  mutate(Probability = Count / sum(Count) * 100)  # Calculate probabilities
+
+# Plot total restzetels distribution with X-axis limited to 8
+total_restzetels_plot <- ggplot(total_restzetels, aes(x = Total_Restzetels, y = Probability)) +
+  geom_bar(stat = "identity", fill = "blue", color = "black", alpha = 0.8) +
+  geom_text(
+    aes(label = sprintf("%.1f%%", Probability)),
+    vjust = -0.5, size = 4, fontface = "bold", color = "black"
+  ) +
+  scale_x_continuous(breaks = 0:8, limits = c(0, 8)) +  # Limit X-axis to 0–8
+  scale_y_continuous(expand = expansion(mult = c(0, 0.2))) +
+  labs(
+    title = "Distribution of Total Restzetels Across Iterations",
+    x = "Total Restzetels",
+    y = "Probability (%)"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.title.x = element_text(size = 12, face = "bold"),
+    axis.title.y = element_text(size = 12, face = "bold"),
+    axis.text.x = element_text(size = 10),
+    axis.text.y = element_text(size = 10),
+    plot.title = element_text(size = 16, hjust = 0.5),
+    panel.grid = element_blank()  # Remove gridlines
+  )
+
+# Save the updated total restzetels distribution plot
+ggsave(
+  filename = "total_restzetels_distribution_limited.jpg",
+  plot = total_restzetels_plot,
   device = "jpeg",
   width = 12,
   height = 8,
