@@ -1,8 +1,9 @@
 # Packages
 ```{r}
-library(ggplot2)
+
 library(dplyr)
 library(tidyr)
+library(ggplot2)
 library(cowplot)
 library(png)
 library(grid)
@@ -747,4 +748,3 @@ ggsave(
   dpi = 300
 )
 ```
-
