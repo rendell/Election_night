@@ -748,3 +748,78 @@ ggsave(
   dpi = 300
 )
 ```
+
+
+# Combine historical restzetels and ensemble forecast visualization
+```{r}
+
+
+# Historical Restzetels Time Series Data Preparation
+historical_restzetels <- restzetels_time_series %>%
+  ggplot(aes(x = Election_Year, y = Total_Restzetels)) +
+  geom_line(size = 1, color = "blue") +
+  geom_point(size = 3, color = "blue") +
+  scale_x_continuous(breaks = seq(1985, 2021, by = 4)) + # Adjust breaks for better visualization
+  labs(
+    title = "Historical Restzetels Over Time",
+    x = "Election Year",
+    y = "Total Restzetels"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(size = 16, hjust = 0.5),
+    axis.title.x = element_text(size = 12, face = "bold"),
+    axis.title.y = element_text(size = 12, face = "bold"),
+    axis.text.x = element_text(size = 10),
+    axis.text.y = element_text(size = 10),
+    panel.grid = element_blank()  # Remove gridlines
+  )
+
+# Ensemble Restzetels Distribution Plot
+ensemble_restzetels_plot <- total_restzetels %>%
+  ggplot(aes(x = Total_Restzetels, y = Probability)) +
+  geom_bar(stat = "identity", fill = "blue", color = "black", alpha = 0.8) +
+  geom_text(
+    aes(label = sprintf("%.1f%%", Probability)),
+    vjust = -0.5, size = 4, fontface = "bold", color = "black"
+  ) +
+  scale_x_continuous(breaks = 0:8, limits = c(0, 8)) +  # Adjust X-axis limits as needed
+  scale_y_continuous(expand = expansion(mult = c(0, 0.2))) +
+  labs(
+    title = "Ensemble Forecast: Total Restzetels (2024)",
+    x = "Total Restzetels",
+    y = "Probability (%)"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(size = 16, hjust = 0.5),
+    axis.title.x = element_text(size = 12, face = "bold"),
+    axis.title.y = element_text(size = 12, face = "bold"),
+    axis.text.x = element_text(size = 10),
+    axis.text.y = element_text(size = 10),
+    panel.grid = element_blank()  # Remove gridlines
+  )
+
+# Combine the Two Plots
+combined_plot <- cowplot::plot_grid(
+  historical_restzetels,
+  ensemble_restzetels_plot,
+  ncol = 2,  # Arrange side by side
+  labels = c("A", "B"),  # Label the plots
+  label_size = 14
+)
+
+# Save the Combined Plot as a JPG File
+ggsave(
+  filename = "historical_and_ensemble_restzetels.jpg",
+  plot = combined_plot,
+  device = "jpeg",
+  width = 14,  # Adjust width to fit both plots
+  height = 8,  # Adjust height as needed
+  dpi = 300
+)
+
+# Display the Combined Plot in the Viewer
+print(combined_plot)
+```
+
