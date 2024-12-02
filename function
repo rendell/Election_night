@@ -823,3 +823,83 @@ ggsave(
 print(combined_plot)
 ```
 
+# Update ensemble forecast
+```{r}
+
+# Update: Ensemble Forecast (12/1/2024)
+# Define the updated input data
+vote_data_updated <- data.frame(
+  Party = c("MEP", "AVP", "RAIZ", "MAS", "AC21", "PPA", "RED", "CURPA", "HTC", "FUTURO", "LPR"),
+  BASE = c(19167, 17155, 4857, 4808, 3079, 2710, 1736, 781, 220, 4545, 1517),
+  SCE1 = c(18802, 17394, 4793, 4240, 3076, 2891, 1257, 349, 181, 4968, 1853),
+  SCE2 = c(15512, 17885, 4353, 3452, 2779, 2431, 2522, 583, 218, 4077, 1517),
+  SCE3 = c(19929, 17886, 3889, 4457, 3373, 5009, 3076, 931, 165, 4449, 1214), 
+  SCE4 = c(19125, 18952, 3381, 3079, 2922, 2822, 1283, 302, 178, 5860, 1640),
+  SCE5 = c(18817, 18199, 3803, 4213, 2885, 2917, 1692, 410, 185, 4694, 1815)
+)
+# added 1k to LPR for all scenarios
+# Here I removed 2500 from RED and added 1100 to AC21, removed 500 from MAS
+
+vote_data_updated <- vote_data_updated %>% mutate(across(-Party, as.numeric))
+
+# Perform updated ensemble forecast
+ensemble_results_updated <- ensemble_forecast(vote_data_updated[-1], vote_data_updated$Party)
+
+# Visualize the updated ensemble
+visualize_ensemble_aggregated <- function(ensemble_results, party_colors, logo_path = NULL) {
+  aggregated_results <- ensemble_results %>%
+    pivot_longer(cols = -Scenario, names_to = "Party", values_to = "Seats") %>%
+    group_by(Scenario, Party, Seats) %>%
+    summarise(Count = n(), .groups = "drop") %>%
+    group_by(Scenario, Party) %>%
+    mutate(Probability = Count / sum(Count) * 100) %>%
+    ungroup() %>%
+    group_by(Party, Seats) %>%
+    summarise(Aggregated_Probability = mean(Probability, na.rm = TRUE), .groups = "drop") %>%
+    complete(Seats = 0:10, Party, fill = list(Aggregated_Probability = 0)) %>%
+    group_by(Party) %>%
+    mutate(Normalized_Probability = Aggregated_Probability / sum(Aggregated_Probability) * 100) %>%
+    ungroup()
+  
+  ensemble_plot <- ggplot(aggregated_results, aes(x = Seats, y = Normalized_Probability, fill = Party)) +
+    geom_bar(stat = "identity", color = "black", alpha = 0.8) +
+    geom_text(aes(label = ifelse(Normalized_Probability > 0, sprintf("%.1f%%", Normalized_Probability), ""), vjust = -0.5),
+              size = 3, color = "black", fontface = "bold") +
+    geom_text(aes(label = ifelse(Normalized_Probability > 0, Seats, ""), vjust = 0.5),
+              position = position_stack(vjust = 0.5), size = 3, color = "white", fontface = "bold") +
+    facet_wrap(~ Party, scales = "free_y", ncol = 2) +
+    scale_x_continuous(breaks = 0:10) +
+    scale_y_continuous(expand = expansion(mult = c(0, 0.3))) +
+    scale_fill_manual(values = party_colors) +
+    labs(
+      title = "A Dynamic Forecast: Simulating Aruba's 2024 Parliamentary Seat Allocation (Updated: 12/1/2024)",
+      x = NULL, y = NULL
+    ) +
+    theme_minimal() +
+    theme(
+      legend.position = "none",
+      plot.title = element_text(size = 16, hjust = 0.5),
+      strip.text = element_text(size = 12, face = "bold"),
+      panel.grid.major = element_blank(),
+      panel.grid.minor = element_blank(),
+      panel.background = element_blank()
+    )
+  
+  # Add footnote
+  final_plot <- cowplot::ggdraw(ensemble_plot) +
+    cowplot::draw_label("Updated 12/1/2024", x = 0.5, y = 0.02, size = 10, hjust = 0.5)
+  
+  return(final_plot)
+}
+
+# Save updated ensemble plot
+ggsave(
+  filename = "ensemble_forecast_aggregated_updated_12_1_2024.jpg",
+  plot = ensemble_plot_updated,
+  device = "jpeg",
+  width = 12,
+  height = 8,
+  dpi = 300
+)
+```
+
