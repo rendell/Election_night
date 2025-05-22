@@ -1,0 +1,296 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+# Comparative Electoral System Analysis for Aruba
+# Three methods: Current system, Sainte-Laguë, and Proposed law change
+
+```{r}
+library(ggplot2)
+library(dplyr)
+```
+
+# Function 1: Current method (already provided, simplified for ERI calculation)
+```{r}
+allocate_seats_current <- function(votes, parties, total_seats = 21) {
+  total_votes <- sum(votes)
+  kiesdeler <- round(total_votes / total_seats)
+  
+  # Initial seat allocation
+  initial_seats <- floor(votes / kiesdeler)
+  remaining_seats <- total_seats - sum(initial_seats)
+  
+  # Create allocation data frame
+  allocation <- data.frame(
+    party = parties,
+    votes = votes,
+    seats = initial_seats,
+    divisor = votes / (initial_seats + 1)
+  )
+  
+  # Distribute remaining seats using D'Hondt method (only for parties reaching kiesdeler)
+  for (i in 1:remaining_seats) {
+    eligible_parties <- which(allocation$votes >= kiesdeler)
+    if (length(eligible_parties) == 0) break
+    
+    max_index <- eligible_parties[which.max(allocation$divisor[eligible_parties])]
+    allocation$seats[max_index] <- allocation$seats[max_index] + 1
+    allocation$divisor[max_index] <- allocation$votes[max_index] / (allocation$seats[max_index] + 1)
+  }
+  
+  # Calculate ERI: proportion of votes that directly earned seats through kiesdeler
+  earned_votes <- sum(initial_seats * kiesdeler)
+  eri <- earned_votes / total_votes
+  
+  return(list(seat_allocation = allocation, eri = eri, kiesdeler = kiesdeler))
+}
+```
+
+# Function 2: Sainte-Laguë method
+```{r}
+allocate_seats_sainte_lague <- function(votes, parties, total_seats = 21) {
+  total_votes <- sum(votes)
+  
+  # Initialize allocation
+  allocation <- data.frame(
+    party = parties,
+    votes = votes,
+    seats = rep(0, length(parties))
+  )
+  
+  # Allocate seats one by one using Sainte-Laguë divisors (1, 3, 5, 7, ...)
+  for (seat in 1:total_seats) {
+    quotients <- votes / (2 * allocation$seats + 1)
+    max_index <- which.max(quotients)
+    allocation$seats[max_index] <- allocation$seats[max_index] + 1
+  }
+  
+  # Calculate ERI using proportionality measure (1 - normalized sum of absolute deviations)
+  vote_percentages <- votes / total_votes
+  seat_percentages <- allocation$seats / total_seats
+  absolute_deviations <- abs(vote_percentages - seat_percentages)
+  # Normalize by maximum possible deviation (0.5) and invert to get proportionality
+  eri <- 1 - (sum(absolute_deviations) / (2 * 0.5))
+  
+  return(list(seat_allocation = allocation, eri = eri))
+}
+```
+
+
+# Function 3: Proposed law change method
+```{r}
+allocate_seats_proposed <- function(votes, parties, total_seats = 21) {
+  total_votes <- sum(votes)
+  kiesdeler <- round(total_votes / total_seats)
+  
+  # Step 1: Initial allocation (Article 91)
+  initial_seats <- floor(votes / kiesdeler)
+  remainders <- votes %% kiesdeler
+  
+  allocation <- data.frame(
+    party = parties,
+    votes = votes,
+    seats = initial_seats,
+    remainders = remainders,
+    earned_through_kiesdeler = initial_seats,
+    earned_through_75pct = rep(0, length(parties)),
+    earned_through_50pct = rep(0, length(parties))
+  )
+  
+  remaining_seats <- total_seats - sum(initial_seats)
+  original_remainders <- remainders  # Store original remainders
+  
+  # Step 2: First round of remainder allocation (75% threshold)
+  while (remaining_seats > 0) {
+    eligible_75 <- which(allocation$votes >= 0.75 * kiesdeler & allocation$remainders > 0)
+    
+    if (length(eligible_75) == 0) break
+    
+    # Find party with largest remainder
+    max_remainder <- max(allocation$remainders[eligible_75])
+    max_indices <- eligible_75[allocation$remainders[eligible_75] == max_remainder]
+    max_index <- sample(max_indices, 1)  # Random tie-breaking
+    
+    # Allocate seat and track it as earned through 75% process
+    allocation$seats[max_index] <- allocation$seats[max_index] + 1
+    allocation$earned_through_75pct[max_index] <- allocation$earned_through_75pct[max_index] + 1
+    allocation$remainders[max_index] <- 0
+    remaining_seats <- remaining_seats - 1
+  }
+  
+  # Step 3: Second round if seats remain (50% threshold)
+  if (remaining_seats > 0) {
+    # Reset remainders for second round - only for parties that haven't used them
+    allocation$remainders <- ifelse(allocation$earned_through_75pct > 0, 0, original_remainders)
+    
+    while (remaining_seats > 0) {
+      eligible_50 <- which(allocation$votes >= 0.50 * kiesdeler & allocation$remainders > 0)
+      
+      if (length(eligible_50) == 0) break
+      
+      # Find party with largest remainder
+      max_remainder <- max(allocation$remainders[eligible_50])
+      max_indices <- eligible_50[allocation$remainders[eligible_50] == max_remainder]
+      max_index <- sample(max_indices, 1)  # Random tie-breaking
+      
+      # Allocate seat and track it as earned through 50% process
+      allocation$seats[max_index] <- allocation$seats[max_index] + 1
+      allocation$earned_through_50pct[max_index] <- allocation$earned_through_50pct[max_index] + 1
+      allocation$remainders[max_index] <- 0
+      remaining_seats <- remaining_seats - 1
+    }
+  }
+  
+  # Calculate ERI: Include votes that earned seats through kiesdeler AND qualified remainder (75% threshold)
+  # This reflects that the 75% threshold makes remainder allocation more accessible/fair
+  kiesdeler_votes <- sum(allocation$earned_through_kiesdeler * kiesdeler)
+  qualified_remainder_votes <- sum(allocation$earned_through_75pct * 0.75 * kiesdeler)  # 75% qualified parties
+  earned_votes <- kiesdeler_votes + qualified_remainder_votes
+  eri <- earned_votes / total_votes
+  
+  return(list(seat_allocation = allocation, eri = eri, kiesdeler = kiesdeler))
+}
+```
+
+# Historical data (using your existing data)
+```{r}
+
+elections <- list(
+  list(year = 1985, votes = c(13786,11480,4499,3661,3216), parties = c("MEP","AVP","PPA","PDA","ADN")),
+  list(year = 1989, votes = c(16555,12668,2298,1874,1772,694,171), parties = c("MEP","AVP","ADN","PPN","PPA","PDA","AD86")),
+  list(year = 1993, votes = c(15621,14907,3056,2314,2094,1075,403,397), parties = c("AVP","MEP","OLA","ADN","PPA","PPN","PDA","Corona")),
+  list(year = 1994, votes = c(17963,15437,4415,1751), parties = c("AVP","MEP","OLA","PPA")),
+  list(year = 1997, votes = c(19476,17358,3976,2052,1092,519,268), parties = c("AVP","MEP","OLA","PPA","ADN","PARA","MAS")),
+  list(year = 2001, votes = c(25172,12749,4598,2713,1666,540,531), parties = c("MEP","AVP","PPA","OLA","ADA","CLA","ADN")),
+  list(year = 2005, votes = c(22002,16725,3661,3330,2414,1725,1092,237,131), parties = c("MEP","AVP","MPA","RED","PDR","OLA","PPA","MSA","PPT")),
+  list(year = 2009, votes = c(26476,19804,3144,2444,2378,611,139,125), parties = c("AVP","MEP","PDR","MPA","RED","PPA","CURPA","OLA/MSI")),
+  list(year = 2013, votes = c(506,33103,4518,805,17653,1209), parties = c("PPA","AVP","PDR","UPP","MEP","RED")),
+  list(year = 2017, votes = c(2107,656,22061,468,5531,287,4166,23376), parties = c("RAIZ", "UPP", "MEP", "CURPA", "POR", "MAS", "RED", "AVP")),
+  list(year = 2021, votes = c(3410, 1809, 4681, 621, 20700, 249, 661, 18335, 574, 312, 5474, 1784), parties = c("A21", "PPA", "MAS", "UPP", "MEP", "HTC", "POR", "AVP", "PP", "CURPA", "RAIZ", "RED")),
+  list(year = 2024, votes = c(1722, 3538, 2323, 505, 423, 7349, 1349, 635, 2204, 17572, 17876), parties = c("MAS", "PPA", "RAIZ", "HTC", "CURPA", "FUTURO", "LPR", "RED", "A21", "MEP", "AVP"))
+)
+```
+
+
+
+# Calculate ERI for all three methods across all elections
+```{r}
+comparative_results <- data.frame(
+  Election_Year = sapply(elections, function(x) x$year),
+  ERI_Current = sapply(elections, function(x) allocate_seats_current(x$votes, x$parties)$eri),
+  ERI_Sainte_Lague = sapply(elections, function(x) allocate_seats_sainte_lague(x$votes, x$parties)$eri),
+  ERI_Proposed = sapply(elections, function(x) allocate_seats_proposed(x$votes, x$parties)$eri)
+)
+
+# Summary statistics
+summary_stats <- data.frame(
+  Method = c("Current System", "Sainte-Laguë", "Proposed Law Change"),
+  Mean_ERI = c(mean(comparative_results$ERI_Current), 
+               mean(comparative_results$ERI_Sainte_Lague), 
+               mean(comparative_results$ERI_Proposed)),
+  Median_ERI = c(median(comparative_results$ERI_Current), 
+                 median(comparative_results$ERI_Sainte_Lague), 
+                 median(comparative_results$ERI_Proposed)),
+  Min_ERI = c(min(comparative_results$ERI_Current), 
+              min(comparative_results$ERI_Sainte_Lague), 
+              min(comparative_results$ERI_Proposed)),
+  Max_ERI = c(max(comparative_results$ERI_Current), 
+              max(comparative_results$ERI_Sainte_Lague), 
+              max(comparative_results$ERI_Proposed)),
+  ERI_2024 = c(comparative_results$ERI_Current[comparative_results$Election_Year == 2024],
+               comparative_results$ERI_Sainte_Lague[comparative_results$Election_Year == 2024],
+               comparative_results$ERI_Proposed[comparative_results$Election_Year == 2024])
+)
+
+# Round to 3 decimal places for better readability
+summary_stats[,2:6] <- round(summary_stats[,2:6], 3)
+
+print("=== SUMMARY STATISTICS: COMPARATIVE ERI ANALYSIS ===")
+print(summary_stats)
+print("")
+print("Note: ERI definitions differ by method:")
+print("- Current: Proportion of votes earning seats through full kiesdeler")
+print("- Proposed: Includes votes earning seats through kiesdeler + 75% qualified remainder")
+print("- Sainte-Laguë: Proportionality index (1 - normalized disproportionality)")
+
+# Display the comparative results table
+print("")
+print("=== YEAR-BY-YEAR ERI COMPARISON ===")
+print(round(comparative_results, 3))
+
+# Prepare data for plotting
+plot_data <- comparative_results %>%
+  select(Election_Year, ERI_Current, ERI_Sainte_Lague, ERI_Proposed) %>%
+  tidyr::pivot_longer(cols = -Election_Year, names_to = "Method", values_to = "ERI") %>%
+  mutate(Method = case_when(
+    Method == "ERI_Current" ~ "Current System",
+    Method == "ERI_Sainte_Lague" ~ "Sainte-Laguë",
+    Method == "ERI_Proposed" ~ "Proposed Law Change"
+  ))
+
+# Create comparative time series plot
+comparative_plot <- ggplot(plot_data, aes(x = Election_Year, y = ERI, color = Method, linetype = Method)) +
+  geom_line(linewidth = 1.2) +
+  geom_point(size = 2.5) +
+  scale_color_manual(values = c("Current System" = "#1f77b4", 
+                               "Sainte-Laguë" = "#ff7f0e", 
+                               "Proposed Law Change" = "#2ca02c")) +
+  scale_linetype_manual(values = c("Current System" = "solid", 
+                                  "Sainte-Laguë" = "dashed", 
+                                  "Proposed Law Change" = "dotted")) +
+  ylim(0.6, 1) +
+  labs(title = "Comparative Electoral System Analysis: Effective Representation Index (ERI)",
+       subtitle = "Aruba Elections 1985-2024: Current vs. Alternative Allocation Methods",
+       x = "Election Year",
+       y = "ERI (0–1)",
+       color = "Allocation Method",
+       linetype = "Allocation Method") +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    legend.position = "bottom",
+    plot.title = element_text(size = 14, face = "bold"),
+    plot.subtitle = element_text(size = 11, color = "gray40")
+  ) +
+  guides(color = guide_legend(nrow = 2))
+
+print(comparative_plot)
+
+# Detailed analysis for 2024 election
+print("\n=== 2024 ELECTION DETAILED COMPARISON ===")
+election_2024 <- elections[[which(sapply(elections, function(x) x$year) == 2024)]]
+
+current_2024 <- allocate_seats_current(election_2024$votes, election_2024$parties)
+sainte_2024 <- allocate_seats_sainte_lague(election_2024$votes, election_2024$parties)
+proposed_2024 <- allocate_seats_proposed(election_2024$votes, election_2024$parties)
+
+comparison_2024 <- data.frame(
+  Party = election_2024$parties,
+  Votes = election_2024$votes,
+  Vote_Pct = round(100 * election_2024$votes / sum(election_2024$votes), 1),
+  Current_Seats = current_2024$seat_allocation$seats,
+  Sainte_Seats = sainte_2024$seat_allocation$seats,
+  Proposed_Seats = proposed_2024$seat_allocation$seats
+)
+
+# Add seat percentages for comparison
+comparison_2024$Current_Seat_Pct <- round(100 * comparison_2024$Current_Seats / 21, 1)
+comparison_2024$Sainte_Seat_Pct <- round(100 * comparison_2024$Sainte_Seats / 21, 1)
+comparison_2024$Proposed_Seat_Pct <- round(100 * comparison_2024$Proposed_Seats / 21, 1)
+
+print(comparison_2024)
+
+cat("\n2024 ERI Comparison:\n")
+cat(sprintf("Current System: %.3f\n", current_2024$eri))
+cat(sprintf("Sainte-Laguë: %.3f (proportionality measure)\n", sainte_2024$eri))
+cat(sprintf("Proposed Method: %.3f\n", proposed_2024$eri))
+
+# Calculate average differences from current system (for kiesdeler-based methods)
+avg_diff_proposed <- mean(comparative_results$ERI_Proposed - comparative_results$ERI_Current)
+
+cat(sprintf("\nAverage ERI difference from current system:\n"))
+cat(sprintf("Proposed method: %+.3f\n", avg_diff_proposed))
+cat("Note: Sainte-Laguë uses different ERI definition (proportionality vs. kiesdeler-based)\n")
+
+```
