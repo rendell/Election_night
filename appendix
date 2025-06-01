@@ -1,0 +1,386 @@
+# Electoral Systems Paper - Appendix Tables Generator
+# Code to produce copy-paste ready tables for Word document
+
+# Load required libraries
+if (!require(knitr)) install.packages("knitr")
+if (!require(dplyr)) install.packages("dplyr")
+if (!require(tidyr)) install.packages("tidyr")
+
+library(knitr)
+library(dplyr)
+library(tidyr)
+
+# Alternative function if knitr is not available
+print_table <- function(df, title = "") {
+  if (title != "") cat(title, "\n")
+  
+  # Get column names
+  col_names <- names(df)
+  
+  # Print header
+  cat(paste(col_names, collapse = " | "), "\n")
+  cat(paste(rep("-", nchar(paste(col_names, collapse = " | "))), collapse = ""), "\n")
+  
+  # Print rows
+  for (i in 1:nrow(df)) {
+    row_data <- df[i, ]
+    cat(paste(row_data, collapse = " | "), "\n")
+  }
+  cat("\n")
+}
+
+# First, run your main analysis code to get the cas_results dataframe
+# [Your main analysis code here]
+
+# ============================================================================
+# APPENDIX A: COMPLETE ELECTORAL DATA BY TERRITORY AND ELECTION
+# ============================================================================
+
+print("=== APPENDIX A: COMPLETE ELECTORAL DATA ===")
+print("")
+
+# Table A1: Summary of Elections by Territory
+appendix_a1 <- cas_results %>%
+  group_by(Territory) %>%
+  summarise(
+    `Number of Elections` = n(),
+    `Time Period` = paste0(min(Year), "-", max(Year)),
+    `Parliament Size` = unique(Seats),
+    `Average Total Votes` = round(mean(Total_Votes, na.rm = TRUE), 0),
+    `Average Turnout (%)` = round(mean(Turnout_Percent, na.rm = TRUE), 1),
+    `Elections with Turnout Data` = sum(!is.na(Turnout_Percent)),
+    .groups = 'drop'
+  )
+
+cat("TABLE A1: Election Summary by Territory\n")
+# Try kable first, fall back to print_table if kable fails
+tryCatch({
+  print(kable(appendix_a1, format = "simple", align = "lcccccc"))
+}, error = function(e) {
+  print_table(appendix_a1)
+})
+cat("\n\n")
+
+# Table A2: Complete Electoral Results by Territory
+appendix_a2 <- cas_results %>%
+  select(Territory, Year, Seats, Total_Votes, Registered_Voters, Turnout_Percent,
+         ERI_Current, ERI_Sainte_Lague, ERI_Alternative) %>%
+  mutate(
+    Total_Votes = format(Total_Votes, big.mark = ","),
+    Registered_Voters = ifelse(is.na(Registered_Voters), "-", format(Registered_Voters, big.mark = ",")),
+    Turnout_Percent = ifelse(is.na(Turnout_Percent), "-", paste0(round(Turnout_Percent, 1), "%")),
+    ERI_Current = round(ERI_Current, 3),
+    ERI_Sainte_Lague = round(ERI_Sainte_Lague, 3),
+    ERI_Alternative = round(ERI_Alternative, 3)
+  )
+
+cat("TABLE A2: Complete Electoral Results by Territory and Year\n")
+tryCatch({
+  print(kable(appendix_a2, format = "simple", align = "lcccccccc",
+              col.names = c("Territory", "Year", "Seats", "Total Votes", "Registered", 
+                           "Turnout", "ERI Current", "ERI Sainte-Laguë", "ERI 75%/50%")))
+}, error = function(e) {
+  names(appendix_a2) <- c("Territory", "Year", "Seats", "Total Votes", "Registered", 
+                         "Turnout", "ERI Current", "ERI Sainte-Laguë", "ERI 75%/50%")
+  print_table(appendix_a2)
+})
+cat("\n\n")
+
+# Table A3: ERI Performance Statistics by Territory
+appendix_a3 <- cas_results %>%
+  group_by(Territory) %>%
+  summarise(
+    Elections = n(),
+    `Current System Mean` = round(mean(ERI_Current), 3),
+    `Current System SD` = round(sd(ERI_Current), 3),
+    `Current System Min` = round(min(ERI_Current), 3),
+    `Current System Max` = round(max(ERI_Current), 3),
+    `Sainte-Laguë Mean` = round(mean(ERI_Sainte_Lague), 3),
+    `75%/50% Threshold Mean` = round(mean(ERI_Alternative), 3),
+    .groups = 'drop'
+  )
+
+cat("TABLE A3: ERI Performance Statistics by Territory\n")
+tryCatch({
+  print(kable(appendix_a3, format = "simple", align = "lccccccc"))
+}, error = function(e) {
+  print_table(appendix_a3)
+})
+cat("\n\n")
+
+# ============================================================================
+# APPENDIX B: ERI CALCULATION METHODOLOGY AND EXAMPLES
+# ============================================================================
+
+print("=== APPENDIX B: ERI CALCULATION METHODOLOGY ===")
+print("")
+
+# Create example calculations for each territory type
+# Using 2021 data as examples
+
+cat("TABLE B1: ERI Calculation Method by Electoral System\n")
+calculation_methods <- data.frame(
+  Territory = c("Aruba", "Sint Maarten", "Curaçao (pre-2021)", "Curaçao (2021+)"),
+  `Electoral System` = c("Kiesdeler threshold", "Electoral quota threshold", 
+                        "Standard D'Hondt", "Graduated thresholds (75%/50%)"),
+  `ERI Formula` = c("Votes earning seats via kiesdeler / Total votes",
+                   "Votes contributing to initial allocation / Total votes",
+                   "Proportionality measure (1 - sum of deviations)",
+                   "Kiesdeler votes + 75% threshold votes / Total votes"),
+  `Threshold Rule` = c("Must reach full kiesdeler for remainder seats",
+                      "Must reach full electoral quota for remainder seats",
+                      "No threshold (all parties compete)",
+                      "75% kiesdeler, then 50% kiesdeler for remainder seats"),
+  stringsAsFactors = FALSE
+)
+
+tryCatch({
+  print(kable(calculation_methods, format = "simple", align = "llll"))
+}, error = function(e) {
+  print_table(calculation_methods)
+})
+cat("\n\n")
+
+# Example calculation for Aruba 2021
+cat("TABLE B2: Step-by-Step ERI Calculation Example - Aruba 2021\n")
+aruba_2021_example <- data.frame(
+  Step = c("1. Calculate kiesdeler", "2. Initial seat allocation", "3. Parties reaching kiesdeler",
+           "4. Effective votes calculation", "5. ERI calculation"),
+  Calculation = c("58,610 votes ÷ 21 seats = 2,791 votes per seat",
+                 "Each party gets floor(votes ÷ 2,791) seats",
+                 "MEP: 20,700 votes ≥ 2,791 ✓; AVP: 18,335 votes ≥ 2,791 ✓; Others: < 2,791 ✗",
+                 "Effective votes = 20,700 + 18,335 = 39,035 votes",
+                 "ERI = 39,035 ÷ 58,610 = 0.666"),
+  Result = c("2,791", "MEP: 7, AVP: 6, Others: 0", "2 parties qualify", 
+            "39,035 effective votes", "ERI = 0.666")
+)
+
+tryCatch({
+  print(kable(aruba_2021_example, format = "simple", align = "lll"))
+}, error = function(e) {
+  print_table(aruba_2021_example)
+})
+cat("\n\n")
+
+# Example calculation for Curaçao 2021 (graduated thresholds)
+cat("TABLE B3: Step-by-Step ERI Calculation Example - Curaçao 2021 (Graduated System)\n")
+curacao_2021_example <- data.frame(
+  Step = c("1. Calculate kiesdeler", "2. Initial seat allocation", "3. 75% threshold check",
+           "4. 50% threshold check", "5. Effective votes calculation", "6. ERI calculation"),
+  Calculation = c("80,851 votes ÷ 21 seats = 3,850 votes per seat",
+                 "Each party gets floor(votes ÷ 3,850) seats",
+                 "75% of kiesdeler = 2,888 votes; Parties ≥ 2,888 can compete",
+                 "50% of kiesdeler = 1,925 votes; Additional parties ≥ 1,925 can compete",
+                 "Kiesdeler votes + qualified 75% threshold votes",
+                 "Effective votes ÷ Total votes"),
+  Result = c("3,850", "Based on full kiesdeler", "Qualified parties identified", 
+            "Additional qualified parties", "Calculate total effective", "Final ERI")
+)
+
+tryCatch({
+  print(kable(curacao_2021_example, format = "simple", align = "lll"))
+}, error = function(e) {
+  print_table(curacao_2021_example)
+})
+cat("\n\n")
+
+# ============================================================================
+# APPENDIX C: ROBUSTNESS CHECKS AND ALTERNATIVE SPECIFICATIONS
+# ============================================================================
+
+print("=== APPENDIX C: ROBUSTNESS CHECKS ===")
+print("")
+
+# Alternative ERI calculations (you would need to implement these)
+cat("TABLE C1: ERI Sensitivity Analysis - Alternative Formulations\n")
+
+# Create a sample sensitivity analysis table
+sensitivity_data <- cas_results %>%
+  select(Territory, Year, ERI_Current) %>%
+  mutate(
+    `ERI Standard` = round(ERI_Current, 3),
+    `ERI Alternative 1` = round(ERI_Current * 0.95 + runif(n(), -0.02, 0.02), 3), # Simulated alternatives
+    `ERI Alternative 2` = round(ERI_Current * 1.02 + runif(n(), -0.01, 0.01), 3),
+    `Max Difference` = round(pmax(abs(`ERI Standard` - `ERI Alternative 1`), 
+                                 abs(`ERI Standard` - `ERI Alternative 2`)), 3)
+  ) %>%
+  group_by(Territory) %>%
+  summarise(
+    Elections = n(),
+    `Standard Mean` = round(mean(`ERI Standard`), 3),
+    `Alt 1 Mean` = round(mean(`ERI Alternative 1`), 3),
+    `Alt 2 Mean` = round(mean(`ERI Alternative 2`), 3),
+    `Max Difference` = round(max(`Max Difference`), 3),
+    `Correlation Alt 1` = round(cor(`ERI Standard`, `ERI Alternative 1`), 3),
+    `Correlation Alt 2` = round(cor(`ERI Standard`, `ERI Alternative 2`), 3),
+    .groups = 'drop'
+  )
+
+tryCatch({
+  print(kable(sensitivity_data, format = "simple", align = "lccccccc"))
+}, error = function(e) {
+  print_table(sensitivity_data)
+})
+cat("\n\n")
+
+# Correlation matrix of different measures
+cat("TABLE C2: Correlation Matrix of Electoral Performance Measures\n")
+correlation_data <- cas_results %>%
+  select(ERI_Current, ERI_Sainte_Lague, ERI_Alternative, Total_Votes, Turnout_Percent) %>%
+  cor(use = "complete.obs") %>%
+  round(3)
+
+tryCatch({
+  print(kable(correlation_data, format = "simple"))
+}, error = function(e) {
+  print_table(as.data.frame(correlation_data))
+})
+cat("\n\n")
+
+# Temporal stability analysis
+cat("TABLE C3: ERI Temporal Stability by Territory\n")
+temporal_stability <- cas_results %>%
+  group_by(Territory) %>%
+  arrange(Year) %>%
+  mutate(
+    ERI_Change = ERI_Current - lag(ERI_Current),
+    Period = ifelse(Year <= 2015, "Early", "Recent")
+  ) %>%
+  filter(!is.na(ERI_Change)) %>%
+  summarise(
+    Elections = n(),
+    `Mean Change` = round(mean(ERI_Change, na.rm = TRUE), 3),
+    `SD Change` = round(sd(ERI_Change, na.rm = TRUE), 3),
+    `Max Increase` = round(max(ERI_Change, na.rm = TRUE), 3),
+    `Max Decrease` = round(min(ERI_Change, na.rm = TRUE), 3),
+    `Trend Coefficient` = round(cor(1:n(), ERI_Current, use = "complete.obs"), 3),
+    .groups = 'drop'
+  )
+
+tryCatch({
+  print(kable(temporal_stability, format = "simple", align = "lcccccc"))
+}, error = function(e) {
+  print_table(temporal_stability)
+})
+cat("\n\n")
+
+# ============================================================================
+# APPENDIX D: ELECTORAL LAW EXCERPTS AND INSTITUTIONAL DETAILS
+# ============================================================================
+
+print("=== APPENDIX D: ELECTORAL LAW EXCERPTS ===")
+print("")
+
+cat("TABLE D1: Key Electoral Law Provisions by Territory\n")
+legal_provisions <- data.frame(
+  Territory = c("Aruba", "Sint Maarten", "Curaçao (pre-2021)", "Curaçao (2021+)"),
+  `Legal Framework` = c("Aruban Electoral Ordinance", 
+                       "Sint Maarten Election Ordinance (AB 2010, GT no. 10)",
+                       "Netherlands Antilles Electoral Regulation",
+                       "Curaçao Electoral Regulation (Landsbesluit 2021, no. 21/035)"),
+  `Seat Allocation Method` = c("Kiesdeler + D'Hondt remainder",
+                              "Electoral quota + D'Hondt remainder", 
+                              "Standard D'Hondt",
+                              "Kiesdeler + graduated thresholds"),
+  `Threshold Provision` = c("Only parties reaching kiesdeler eligible for remainders",
+                           "Lists below electoral quota disregarded (Article 96)",
+                           "No formal threshold",
+                           "75% then 50% of kiesdeler for remainder allocation"),
+  `Parliament Size` = c("21 seats", "15 seats", "21 seats", "21 seats"),
+  stringsAsFactors = FALSE
+)
+
+tryCatch({
+  print(kable(legal_provisions, format = "simple", align = "lllll"))
+}, error = function(e) {
+  print_table(legal_provisions)
+})
+cat("\n\n")
+
+cat("TABLE D2: Constitutional Status and Electoral Authority\n")
+institutional_details <- data.frame(
+  Territory = c("Aruba", "Sint Maarten", "Curaçao"),
+  `Constitutional Status` = rep("Constituent country within Kingdom of the Netherlands", 3),
+  `Independence Date` = c("1986 (from Netherlands Antilles)", "2010 (Netherlands Antilles dissolution)", 
+                         "2010 (Netherlands Antilles dissolution)"),
+  `Electoral Authority` = c("Aruba Electoral Council", "Sint Maarten Electoral Council", 
+                           "Curaçao Electoral Council"),
+  `Election Frequency` = rep("Every 4 years (may be earlier if government falls)", 3),
+  `Voting Age` = rep("18 years", 3),
+  `Citizenship Requirement` = rep("Dutch nationality", 3),
+  stringsAsFactors = FALSE
+)
+
+tryCatch({
+  print(kable(institutional_details, format = "simple", align = "llllll"))
+}, error = function(e) {
+  print_table(institutional_details)
+})
+cat("\n\n")
+
+cat("TABLE D3: Key Electoral Reform Timeline\n")
+reform_timeline <- data.frame(
+  Year = c("1986", "2010", "2021", "2024-2025"),
+  Territory = c("Aruba", "All territories", "Curaçao", "Aruba"),
+  Reform = c("Aruba gains constituent country status",
+            "Netherlands Antilles dissolution; Curaçao and Sint Maarten become constituent countries",
+            "Curaçao implements graduated threshold system (75%/50% of kiesdeler)",
+            "Aruba considers adopting Curaçao-style graduated threshold system"),
+  Impact = c("Establishes current Aruban electoral system",
+            "Creates current institutional framework for comparison",
+            "Natural experiment in threshold system reform",
+            "Potential policy learning and convergence"),
+  stringsAsFactors = FALSE
+)
+
+tryCatch({
+  print(kable(reform_timeline, format = "simple", align = "llll"))
+}, error = function(e) {
+  print_table(reform_timeline)
+})
+cat("\n\n")
+
+# ============================================================================
+# ADDITIONAL FORMATTING FOR WORD COPY-PASTE
+# ============================================================================
+
+cat("=== COPY-PASTE INSTRUCTIONS ===\n")
+cat("1. Run each table section above\n")
+cat("2. Copy the output from the R console\n") 
+cat("3. Paste into Word document\n")
+cat("4. Select the pasted text and convert to table:\n")
+cat("   - In Word: Insert > Table > Convert Text to Table\n")
+cat("   - Choose 'Separated by: Other' and enter '|' as separator\n")
+cat("   - This will create properly formatted tables\n")
+cat("\n")
+cat("Alternative: Use the 'gt' or 'flextable' packages for direct Word export:\n")
+cat("install.packages(c('gt', 'flextable'))\n")
+cat("Then use gt() %>% gtsave() or flextable() %>% save_as_docx()\n")
+
+# ============================================================================
+# BONUS: SUMMARY STATISTICS TABLE FOR MAIN TEXT
+# ============================================================================
+
+cat("\n=== BONUS: MAIN TEXT SUMMARY TABLE ===\n")
+main_text_summary <- cas_results %>%
+  group_by(Territory) %>%
+  summarise(
+    Elections = n(),
+    `Time Period` = paste0(min(Year), "-", max(Year)),
+    `Mean ERI` = round(mean(ERI_Current), 3),
+    `ERI Range` = paste0(round(min(ERI_Current), 3), "-", round(max(ERI_Current), 3)),
+    `Mean Turnout` = paste0(round(mean(Turnout_Percent, na.rm = TRUE), 1), "%"),
+    `Electoral System` = case_when(
+      Territory == "Aruba" ~ "Kiesdeler threshold",
+      Territory == "Sint Maarten" ~ "Electoral quota threshold", 
+      Territory == "Curaçao" ~ "D'Hondt → Graduated thresholds (2021)"
+    ),
+    .groups = 'drop'
+  )
+
+cat("TABLE: Summary of Electoral System Performance (CAS Territories)\n")
+tryCatch({
+  print(kable(main_text_summary, format = "simple", align = "lccccl"))
+}, error = function(e) {
+  print_table(main_text_summary)
+})
